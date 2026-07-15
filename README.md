@@ -71,3 +71,13 @@ Run `sql/generated-images-migration.sql` once. User uploads remain only in the b
 4. Open `/admin.html` and sign in.
 
 The dashboard calculates estimated OpenRouter recharge as collected USD divided by the configured `MARKUP`, and shows the remaining estimated profit in USD and Pi.
+
+## Pi-based admin access
+The admin dashboard now uses the same Pi SDK session as the main app. Sign in on `/`, then open `/admin.html`.
+Only a row in `public.users` with `role = 'admin'` can access dashboard statistics:
+
+```sql
+update public.users
+set role = 'admin'
+where lower(username) = lower('YOUR_PI_USERNAME');
+```
