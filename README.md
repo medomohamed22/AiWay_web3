@@ -56,3 +56,7 @@ sql/aiway-full-database.sql
 ```
 
 The file is idempotent and contains the users, conversations, messages, payments, trial, token charging, first-purchase unlock, RLS, grants, indexes, and transactional payment functions.
+
+
+## Attachments and generated images
+Run `sql/generated-images-migration.sql` once. User uploads remain only in the browser IndexedDB and are sent to the selected AI only with the current request. Generated 512px compressed images are saved in `generated_images`.
