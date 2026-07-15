@@ -1,4 +1,4 @@
-# Pi AI Hub
+# AiWay
 
 منصة شات ذكاء اصطناعي داخل Pi Browser، مبنية على مشروع AppHub الأصلي وتستخدم:
 - Pi SDK لتسجيل الدخول والدفع.
@@ -20,8 +20,6 @@
 - `APP_JWT_SECRET` (32 حرفًا أو أكثر)
 - `PI_SECRET_KEY` (خادم فقط)
 - `OPENROUTER_API_KEY` (خادم فقط)
-- `SITE_URL`
-- `SITE_NAME`
 
 ## المزايا
 - تسجيل دخول Pi.
@@ -39,3 +37,22 @@
 The deployable `/api` directory contains 11 JavaScript files, including the shared `_lib.js`, so it stays below a 12-file serverless-function limit.
 
 Older AppHub management endpoints that are not used by the AI chat are preserved under `/legacy-api`. Vercel does not deploy that directory as API functions. Move an endpoint back only if you also consolidate or remove another function first.
+
+
+## Free trial and model unlocking
+
+New accounts receive 1,500 AiWay Tokens and up to 5 trial messages. Before the first completed Pi purchase, only DeepSeek V3 is available and web search is disabled. The first successful purchase sets `has_purchased=true`, unlocks all models, and keeps normal usage based on each model's OpenRouter cost.
+
+For an existing database, run `sql/free-trial-model-lock.sql` once in Supabase SQL Editor. Existing users with a completed payment are automatically marked as purchased.
+
+## Latest model families
+`/api/models` fetches the OpenRouter catalog once per hour and automatically selects the newest three text-chat models from each family: OpenAI/ChatGPT, Google/Gemini, DeepSeek, and Anthropic/Claude. The trial model is the newest available DeepSeek V3 variant; all other models remain server-locked until the first completed Pi purchase.
+
+## Complete database
+For a new installation or to upgrade an existing AiWay database, run only:
+
+```text
+sql/aiway-full-database.sql
+```
+
+The file is idempotent and contains the users, conversations, messages, payments, trial, token charging, first-purchase unlock, RLS, grants, indexes, and transactional payment functions.
