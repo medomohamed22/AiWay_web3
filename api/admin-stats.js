@@ -1,9 +1,10 @@
-import { allowMethods, db, json, requireAdminToken, MARKUP, getPiUsd } from './_lib.js';
+import { allowMethods, db, json, requireUser, requireAdmin, MARKUP, getPiUsd } from './_lib.js';
 
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['GET'])) return;
   try {
-    await requireAdminToken(req);
+    const user = await requireUser(req);
+    requireAdmin(user);
     const s = db();
     const [{ count: users }, { count: buyers }, { count: purchaseRequests }, paymentsResult] = await Promise.all([
       s.from('users').select('*', { count: 'exact', head: true }).eq('role', 'user'),
