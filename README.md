@@ -81,3 +81,8 @@ update public.users
 set role = 'admin'
 where lower(username) = lower('YOUR_PI_USERNAME');
 ```
+
+
+## Vercel API limit
+
+The `api` folder contains exactly 12 serverless function files, including `_lib.js`. Unused legacy admin endpoints were removed.
