@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { SignJWT, jwtVerify } from 'jose';
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -55,6 +56,40 @@ export async function requireUser(req) {
 
 export function requireAdmin(user) {
   if (!user || user.role !== 'admin') throw new Error('FORBIDDEN');
+}
+
+
+export function hashPassword(password) {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(String(password), salt, 64).toString('hex');
+  return `scrypt:${salt}:${hash}`;
+}
+
+export function verifyPassword(password, stored) {
+  try {
+    const [type, salt, hash] = String(stored || '').split(':');
+    if (type !== 'scrypt' || !salt || !hash) return false;
+    const actual = scryptSync(String(password), salt, 64);
+    const expected = Buffer.from(hash, 'hex');
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  } catch { return false; }
+}
+
+export async function signAdminToken(admin) {
+  requireEnv();
+  return new SignJWT({ role: 'admin', email: admin.email, admin: true })
+    .setProtectedHeader({ alg: 'HS256' }).setSubject(admin.id).setIssuedAt().setExpirationTime('12h')
+    .sign(new TextEncoder().encode(jwtSecret));
+}
+
+export async function requireAdminToken(req) {
+  requireEnv();
+  const authorization = req.headers.authorization || '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  if (!token) throw new Error('UNAUTHORIZED');
+  const { payload } = await jwtVerify(token, new TextEncoder().encode(jwtSecret));
+  if (!payload.sub || payload.role !== 'admin' || !payload.admin) throw new Error('FORBIDDEN');
+  return payload;
 }
 
 export function cleanText(value, max = 500) {
