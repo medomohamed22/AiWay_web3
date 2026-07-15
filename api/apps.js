@@ -1,3 +1,4 @@
+
 import { allowMethods, db, json } from './_lib.js';
 
 const APP_FIELDS = 'id,name,slug,category,network,short_description,website_url,icon_url,screenshot_urls,rating,ratings_count,views_count,get_clicks_count,is_verified,is_featured,featured_until,developer_name,created_at';
