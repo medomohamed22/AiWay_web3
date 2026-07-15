@@ -130,6 +130,35 @@ function applyLanguage(){document.documentElement.lang=lang;document.documentEle
 function toggleLanguage(){lang=lang==='en'?'ar':'en';localStorage.setItem('aiway_lang',lang);applyLanguage();render()}
 async function deleteChat(id){const ok=confirm(lang==='ar'?'هل تريد حذف هذه الدردشة نهائيًا؟':'Delete this chat permanently?');if(!ok)return;await api('/api/conversations?id='+encodeURIComponent(id),{method:'DELETE'});if(current===id){current=null;history=[];render()}await loadChats();toast(lang==='ar'?'تم حذف الدردشة':'Chat deleted')}
 function initPi(){let tries=0;const timer=setInterval(()=>{tries++;if(window.Pi?.init){clearInterval(timer);try{Pi.init({version:'2.0',sandbox:false});piReady=true;$('profileState').textContent=auth?(lang==='ar'?'متصل بحساب Pi':'Connected with Pi'):(lang==='ar'?'جاهز لتسجيل الدخول':'Ready to sign in')}catch(e){console.error(e)}}else if(tries>30){clearInterval(timer);$('profileState').textContent=lang==='ar'?'افتح الموقع داخل Pi Browser':'Open this site in Pi Browser'}},150)}
+function renderModelSelect(preferred=''){
+  const select=$('model');
+  const models=Array.isArray(window.aiwayModels)?window.aiwayModels:[];
+  if(!models.length){
+    select.innerHTML=`<option value="">${lang==='ar'?'لا توجد نماذج متاحة':'No models available'}</option>`;
+    select.disabled=true;
+    return;
+  }
+  const current=preferred||select.value||window.aiwayTrialModelId||models.find(m=>!m.locked)?.id||models[0].id;
+  select.innerHTML=models.map(model=>{
+    const locked=model.locked?' 🔒':'';
+    const trial=model.trial?(lang==='ar'?' — تجريبي':' — Trial'):'';
+    const label=model.name||model.id;
+    return `<option value="${esc(model.id)}" ${model.locked?'disabled':''}>${esc(label+trial+locked)}</option>`;
+  }).join('');
+  const allowed=models.find(m=>m.id===current&&!m.locked)||models.find(m=>!m.locked)||models[0];
+  select.value=allowed?.id||'';
+  select.disabled=false;
+}
+async function loadModels(){
+  const selected=$('model')?.value||'';
+  const data=await api('/api/models');
+  window.aiwayPackages=data.packages||{};
+  window.aiwayModels=Array.isArray(data.models)?data.models:[];
+  window.aiwayTrialModelId=data.trialModelId||'';
+  renderModelSelect(selected);
+  renderPackages();
+  return data;
+}
 async function init(){applyLanguage();initPi();try{await loadModels()}catch(e){toast(e.message)}render();if(auth){try{await refreshMe();await loadModels();await loadChats()}catch(e){toast(lang==='ar'?'انتهت الجلسة، سجّل الدخول من جديد':'Session expired. Please sign in again.')}}}
 async function authenticatePiForPayments({refreshSession=true,silentRecovery=true}={}){if(!piReady||!window.Pi?.authenticate)throw Error('افتح الموقع من Pi Browser وانتظر تحميل Pi SDK');let recovered=0;const result=await Pi.authenticate(['username','payments'],async payment=>{if(await recoverIncompletePayment(payment,{silent:silentRecovery}))recovered++});if(!result?.accessToken)throw Error('لم يرجع Pi رمز الدخول');if(refreshSession){const data=await api('/api/pi-login',{method:'POST',body:JSON.stringify({accessToken:result.accessToken,user:result.user||null})});auth=data;localStorage.setItem('pi_ai_auth',JSON.stringify(auth))}return {result,recovered}}
 async function login(){if(auth)return toast(lang==='ar'?'أنت مسجل بالفعل':'You are already signed in');const btn=$('loginBtn');btn.disabled=true;btn.querySelector('span:last-child').textContent=lang==='ar'?'جارٍ الدخول':'Signing in…';$('profileState').innerHTML='<span class="loading-dot"></span> <span class="loading-dot"></span> <span class="loading-dot"></span>';try{await authenticatePiForPayments({refreshSession:true,silentRecovery:true});await Promise.all([refreshMe(),loadModels(),loadChats()]);toast(userProfile?.has_purchased?(lang==='ar'?'تم تسجيل الدخول بنجاح':'Signed in successfully'):(lang==='ar'?`مرحبًا بك — لديك ${userProfile?.trial_messages_remaining||0} رسائل مجانية على DeepSeek V3`:`Welcome — you have ${userProfile?.trial_messages_remaining||0} free DeepSeek V3 messages`))}catch(e){console.error(e);$('profileState').textContent=lang==='ar'?'تعذر تسجيل الدخول':'Could not sign in';toast(e.message||(lang==='ar'?'فشل تسجيل الدخول بحساب Pi':'Pi sign-in failed'))}finally{btn.disabled=false;btn.querySelector('span:last-child').textContent=auth?I18N[lang].connected:I18N[lang].login}}
