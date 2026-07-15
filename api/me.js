@@ -1,0 +1,2 @@
+import {allowMethods,db,handleError,json,requireUser} from './_lib.js';
+export default async function handler(req,res){if(!allowMethods(req,res,['GET']))return;try{const user=await requireUser(req);const {data,error}=await db().from('users').select('id,username,role,credits,created_at').eq('id',user.id).single();if(error)throw error;return json(res,200,{user:data})}catch(e){return handleError(e,res,'Unable to load profile')}}
