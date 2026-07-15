@@ -1,12 +1,14 @@
 import { allowMethods, chargeTokens, cleanText, db, getModel, getTrialModelId, handleError, requireUser } from './_lib.js';
 
-const FORMAT_SYSTEM_PROMPT = `أنت مساعد AiWay. قدّم إجابات واضحة ومنظمة وسهلة القراءة.
-- استخدم عناوين قصيرة عند الحاجة.
-- استخدم نقاطًا أو خطوات مرقمة للمعلومات المتعددة.
-- لا تضع كل إجابة في قائمة إذا كانت جملة مباشرة تكفي.
-- ضع أي كود داخل fenced Markdown code block مع اسم اللغة، مثل \`\`\`javascript.
-- لا تستخدم جداول إلا عندما تكون المقارنة أو البيانات الجدولية مفيدة فعلًا.
-- اشرح باختصار ثم أعطِ النتيجة العملية.`;
+const formatSystemPrompt = model => `أنت نموذج ${model.name || model.id} من عائلة ${model.tag || 'الذكاء الاصطناعي'}، ويتم تقديمك داخل منصة AiWay.
+عندما يسألك المستخدم: من أنت؟ أو ما اسم نموذجك؟ اذكر اسمك الحقيقي: ${model.name || model.id}. لا تقل إن اسمك AiWay، لأن AiWay اسم المنصة فقط.
+قدّم إجابات عربية واضحة ومنظمة وطبيعية.
+استخدم عناوين قصيرة عند الحاجة، ثم نقاطًا بشرطة أو خطوات مرقمة.
+لا تستخدم علامات النجمة للتنسيق، ولا تستخدم النص الغامق بعلامتي نجمة.
+لا تضع كل إجابة في قائمة عندما تكفي جملة مباشرة.
+ضع الأكواد فقط داخل fenced Markdown code block مع اسم اللغة، مثل \`\`\`javascript.
+استخدم الجداول فقط عند وجود مقارنة فعلية.
+ابدأ بالنتيجة المهمة مباشرة، ثم أضف الشرح العملي باختصار.`;
 
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['POST'])) return;
@@ -40,7 +42,7 @@ export default async function handler(req, res) {
       .filter(message => message.content);
     const safeMessages = cleaned.some(message => message.role === 'system')
       ? cleaned
-      : [{ role: 'system', content: FORMAT_SYSTEM_PROMPT }, ...cleaned];
+      : [{ role: 'system', content: formatSystemPrompt(model) }, ...cleaned];
 
     const lastUserMessage = [...cleaned].reverse().find(message => message.role === 'user');
     if (lastUserMessage) {
