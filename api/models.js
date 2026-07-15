@@ -21,11 +21,7 @@ export default async function handler(req, res) {
       contextLength: model.contextLength,
       created: model.created,
       locked: !unlocked && model.id !== trialModelId,
-      trial: model.id === trialModelId,
-      pricing: {
-        inputPerMillion: Math.round(model.pricing.prompt * 1e6 * MARKUP / TOKEN_USD),
-        outputPerMillion: Math.round(model.pricing.completion * 1e6 * MARKUP / TOKEN_USD)
-      }
+      trial: model.id === trialModelId
     }));
 
     const packages = {};

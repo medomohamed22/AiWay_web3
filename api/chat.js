@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   if (!allowMethods(req, res, ['POST'])) return;
   try {
     const user = await requireUser(req);
-    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false } = req.body || {};
+    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [] } = req.body || {};
     if (!conversationId || !modelId || !Array.isArray(messages)) return res.status(400).json({ error: 'Invalid chat request' });
 
     const [model, trialModelId] = await Promise.all([getModel(modelId), getTrialModelId()]);
@@ -40,6 +40,23 @@ export default async function handler(req, res) {
         content: cleanText(message.content, 30000)
       }))
       .filter(message => message.content);
+
+    const safeAttachments = Array.isArray(attachments) ? attachments.slice(0, 3).filter(a =>
+      a && typeof a.name === 'string' && typeof a.type === 'string' &&
+      typeof a.dataUrl === 'string' && a.dataUrl.startsWith('data:') && a.dataUrl.length <= 4_300_000
+    ) : [];
+    if (safeAttachments.length) {
+      const lastIndex = [...cleaned].map(x => x.role).lastIndexOf('user');
+      if (lastIndex >= 0) {
+        const text = cleaned[lastIndex].content || 'حلل الملفات المرفقة';
+        cleaned[lastIndex].content = [
+          { type: 'text', text },
+          ...safeAttachments.map(a => a.type.startsWith('image/')
+            ? { type: 'image_url', image_url: { url: a.dataUrl } }
+            : { type: 'file', file: { filename: cleanText(a.name, 150), file_data: a.dataUrl } })
+        ];
+      }
+    }
     const safeMessages = cleaned.some(message => message.role === 'system')
       ? cleaned
       : [{ role: 'system', content: formatSystemPrompt(model) }, ...cleaned];
@@ -50,7 +67,8 @@ export default async function handler(req, res) {
         conversation_id: conversationId,
         user_id: user.id,
         role: 'user',
-        content: lastUserMessage.content
+        content: typeof lastUserMessage.content === 'string' ? lastUserMessage.content : cleanText(lastUserMessage.content?.find?.(p => p.type === 'text')?.text || 'رسالة مع مرفقات', 30000),
+        token_usage: { attachments: safeAttachments.map(a => ({ name: cleanText(a.name,150), type: a.type, size: Number(a.size||0) })) }
       });
       if (error) throw error;
     }
@@ -68,7 +86,7 @@ export default async function handler(req, res) {
         messages: safeMessages,
         temperature: Number(temperature),
         stream: true,
-        plugins: webSearch ? [{ id: 'web' }] : undefined,
+        plugins: [webSearch ? { id: 'web' } : null, safeAttachments.some(a => a.type === 'application/pdf') ? { id: 'file-parser', pdf: { engine: 'cloudflare-ai' } } : null].filter(Boolean),
         user: user.id
       })
     });
