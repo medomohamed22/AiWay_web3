@@ -111,7 +111,7 @@
   <button class="icon-btn export" id="exportBtn" title="Export chat"><span data-icon="download"></span></button>
 </header>
 <section class="messages" id="messages"></section>
-<div class="composer-zone"><div class="composer"><div class="attachment-strip" id="attachmentStrip"></div><textarea id="prompt" rows="1" placeholder="Ask anything..."></textarea><div class="composer-foot"><button class="pill" id="webPill"><span data-icon="globe"></span><span class="pill-text" data-i18n="webSearch">Web search</span></button><button class="pill attach-pill" id="attachBtn" aria-label="Attach image or file" title="Attach image or file"><span data-icon="camera"></span></button><input id="fileInput" type="file" hidden multiple accept="*/*"><span class="status" id="status"></span><button class="send" id="sendBtn" aria-label="Send"><span data-icon="send"></span></button></div></div></div>
+<div class="composer-zone"><div class="composer"><div class="attachment-strip" id="attachmentStrip"></div><textarea id="prompt" rows="1" placeholder="Ask anything..."></textarea><div class="composer-foot"><button class="pill" id="webPill"><span data-icon="globe"></span><span class="pill-text" data-i18n="webSearch">Web search</span></button><button class="pill attach-pill" id="attachBtn" aria-label="Attach image or file" title="Attach image or file"><span data-icon="camera"></span></button><input id="fileInput" type="file" hidden multiple accept="*/*"><span class="status" id="status"></span><button class="send" id="sendBtn" type="button" aria-label="Send"><span data-icon="send"></span></button></div></div></div>
 </main>
 </div>
 <div class="overlay" id="payModal"><div class="modal"><div class="modal-head"><h2 data-i18n="buyBalance">Buy balance with Pi</h2><button class="icon-btn" id="closePay"><span data-icon="close"></span></button></div><p data-i18n="choosePack">Choose a package. Pi is the primary payment currency.</p><div class="packs"><div class="pack"><b>100</b><small>0.1 Pi</small><button class="btn primary buy" data-pack="starter">شراء</button></div><div class="pack featured"><b>650</b><small>0.5 Pi</small><button class="btn primary buy" data-pack="plus">الأفضل</button></div><div class="pack"><b>1500</b><small>1 Pi</small><button class="btn primary buy" data-pack="pro">شراء</button></div></div></div></div>
@@ -130,32 +130,25 @@ function applyLanguage(){document.documentElement.lang=lang;document.documentEle
 function toggleLanguage(){lang=lang==='en'?'ar':'en';localStorage.setItem('aiway_lang',lang);applyLanguage();render()}
 async function deleteChat(id){const ok=confirm(lang==='ar'?'هل تريد حذف هذه الدردشة نهائيًا؟':'Delete this chat permanently?');if(!ok)return;await api('/api/conversations?id='+encodeURIComponent(id),{method:'DELETE'});if(current===id){current=null;history=[];render()}await loadChats();toast(lang==='ar'?'تم حذف الدردشة':'Chat deleted')}
 function initPi(){let tries=0;const timer=setInterval(()=>{tries++;if(window.Pi?.init){clearInterval(timer);try{Pi.init({version:'2.0',sandbox:false});piReady=true;$('profileState').textContent=auth?(lang==='ar'?'متصل بحساب Pi':'Connected with Pi'):(lang==='ar'?'جاهز لتسجيل الدخول':'Ready to sign in')}catch(e){console.error(e)}}else if(tries>30){clearInterval(timer);$('profileState').textContent=lang==='ar'?'افتح الموقع داخل Pi Browser':'Open this site in Pi Browser'}},150)}
-function renderModelSelect(preferred=''){
+function renderModelSelect(selected=''){
   const select=$('model');
-  const models=Array.isArray(window.aiwayModels)?window.aiwayModels:[];
+  const models=window.aiwayModels||[];
   if(!models.length){
     select.innerHTML=`<option value="">${lang==='ar'?'لا توجد نماذج متاحة':'No models available'}</option>`;
-    select.disabled=true;
     return;
   }
-  const current=preferred||select.value||window.aiwayTrialModelId||models.find(m=>!m.locked)?.id||models[0].id;
-  select.innerHTML=models.map(model=>{
-    const locked=model.locked?' 🔒':'';
-    const trial=model.trial?(lang==='ar'?' — تجريبي':' — Trial'):'';
-    const label=model.name||model.id;
-    return `<option value="${esc(model.id)}" ${model.locked?'disabled':''}>${esc(label+trial+locked)}</option>`;
-  }).join('');
-  const allowed=models.find(m=>m.id===current&&!m.locked)||models.find(m=>!m.locked)||models[0];
-  select.value=allowed?.id||'';
-  select.disabled=false;
+  const preferred=selected&&models.some(m=>m.id===selected&&!m.locked)
+    ? selected
+    : (models.find(m=>m.trial&&!m.locked)||models.find(m=>!m.locked)||models[0]).id;
+  select.innerHTML=models.map(m=>`<option value="${esc(m.id)}" ${m.locked?'disabled':''}>${esc(m.name||m.id)}${m.locked?(lang==='ar'?' — مقفول':' — Locked'):''}</option>`).join('');
+  select.value=preferred;
 }
 async function loadModels(){
-  const selected=$('model')?.value||'';
+  const selected=$('model').value;
   const data=await api('/api/models');
   window.aiwayPackages=data.packages||{};
-  window.aiwayModels=Array.isArray(data.models)?data.models:[];
-  window.aiwayTrialModelId=data.trialModelId||'';
-  renderModelSelect(selected);
+  window.aiwayModels=data.models||[];
+  renderModelSelect(selected||data.trialModelId||'');
   renderPackages();
   return data;
 }
@@ -185,7 +178,42 @@ function isImageRequest(text){return /(?:اعمل|أنشئ|ارسم|ولد|صم�
 async function downloadGeneratedImage(i){const img=history[i]?.generatedImage;if(!img?.thumbnail_data)return toast('الصورة غير متاحة');try{const r=await fetch(img.thumbnail_data),blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`AiWay-${Date.now()}.${blob.type.includes('png')?'png':'jpg'}`;a.style.display='none';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(url);a.remove()},1200)}catch{toast('تعذر تنزيل الصورة')}}
 async function generateImageMessage(text,attachments){history.push({role:'assistant',content:'',generatedImage:null});render();const r=await api('/api/image',{method:'POST',body:JSON.stringify({conversationId:current,prompt:text,referenceImage:attachments.find(a=>a.type.startsWith('image/'))?.dataUrl||null})});history[history.length-1]={role:'assistant',content:'تم إنشاء الصورة المطلوبة.',generatedImage:r.image};render();await Promise.all([refreshMe(),loadChats()])}
 
-async function sendMessage(){if(streaming){controller?.abort();return}if(!auth)return login();const text=$('prompt').value.trim();if(!text&&!pendingAttachments.length)return;if(!current){const d=await api('/api/conversations',{method:'POST',body:JSON.stringify({title:lang==='ar'?'محادثة جديدة':'New chat',modelId:$('model').value})});current=d.conversation.id}const sentAttachments=pendingAttachments.map(({name,type,size,dataUrl})=>({name,type,size,dataUrl}));pendingAttachments=[];renderAttachmentStrip();streaming=true;controller=new AbortController();history.push({role:'user',content:text||'حلل الملفات المرفقة',attachments:sentAttachments});$('prompt').value='';autoSize();render();$('status').textContent='';$('sendBtn').classList.add('sending');$('sendBtn').innerHTML=ICONS.stop;try{if(isImageRequest(text)){await generateImageMessage(text,sentAttachments);return}history.push({role:'assistant',content:''});render();const r=await fetch('/api/chat',{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json',Authorization:`Bearer ${auth.token}`},body:JSON.stringify({conversationId:current,modelId:$('model').value,messages:history.slice(0,-1),temperature:.7,webSearch,attachments:sentAttachments})});if(!r.ok){const d=await r.json().catch(()=>({}));throw Error(d.error||'فشل إرسال الرسالة')}const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const parts=buffer.split('\n\n');buffer=parts.pop()||'';for(const part of parts){const line=part.split('\n').find(x=>x.startsWith('data:'));if(!line)continue;const d=JSON.parse(line.slice(5));if(d.type==='delta'){history[history.length-1].content+=d.text;updateStreamingBubble()}if(d.type==='error')throw Error(d.error)}}render();await Promise.all([refreshMe(),loadChats()])}catch(e){if(e.name==='AbortError'){if(!history.at(-1)?.content)history.pop();toast('تم إيقاف الإجابة')}else{if(history.at(-1)?.role==='assistant')history.at(-1).content='حدث خطأ: '+e.message;toast(e.message)}render()}finally{streaming=false;controller=null;$('status').textContent='';$('sendBtn').classList.remove('sending');$('sendBtn').innerHTML=ICONS.send}}
+async function sendMessage(){
+  if(streaming){controller?.abort();return}
+  try{
+    if(!auth){await login();return}
+    const text=$('prompt').value.trim();
+    if(!text&&!pendingAttachments.length){toast(lang==='ar'?'اكتب رسالة أولًا':'Write a message first');return}
+    let modelId=$('model').value;
+    if(!modelId){
+      await loadModels();
+      modelId=$('model').value;
+      if(!modelId)throw Error(lang==='ar'?'تعذر تحميل نموذج الذكاء الاصطناعي':'Could not load an AI model');
+    }
+    if(!current){
+      const d=await api('/api/conversations',{method:'POST',body:JSON.stringify({title:lang==='ar'?'محادثة جديدة':'New chat',modelId})});
+      current=d.conversation.id;
+    }
+    const sentAttachments=pendingAttachments.map(({name,type,size,dataUrl})=>({name,type,size,dataUrl}));
+    pendingAttachments=[];renderAttachmentStrip();streaming=true;controller=new AbortController();
+    history.push({role:'user',content:text||(lang==='ar'?'حلل الملفات المرفقة':'Analyze the attached files'),attachments:sentAttachments});
+    $('prompt').value='';autoSize();render();$('status').textContent='';$('sendBtn').classList.add('sending');$('sendBtn').innerHTML=ICONS.stop;
+    if(isImageRequest(text)){await generateImageMessage(text,sentAttachments);return}
+    history.push({role:'assistant',content:''});render();
+    const r=await fetch('/api/chat',{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json',Authorization:`Bearer ${auth.token}`},body:JSON.stringify({conversationId:current,modelId,messages:history.slice(0,-1),temperature:.7,webSearch,attachments:sentAttachments})});
+    if(!r.ok){const d=await r.json().catch(()=>({}));throw Error(d.error||(lang==='ar'?'فشل إرسال الرسالة':'Failed to send message'))}
+    if(!r.body)throw Error(lang==='ar'?'المتصفح لا يدعم بث الرد':'This browser does not support response streaming');
+    const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='';
+    while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const parts=buffer.split('\n\n');buffer=parts.pop()||'';for(const part of parts){const line=part.split('\n').find(x=>x.startsWith('data:'));if(!line)continue;const d=JSON.parse(line.slice(5));if(d.type==='delta'){history[history.length-1].content+=d.text;updateStreamingBubble()}if(d.type==='error')throw Error(d.error)}}
+    render();await Promise.all([refreshMe(),loadChats()]);
+  }catch(e){
+    if(e.name==='AbortError'){if(!history.at(-1)?.content)history.pop();toast(lang==='ar'?'تم إيقاف الإجابة':'Response stopped')}
+    else{if(history.at(-1)?.role==='assistant'&&!history.at(-1)?.content)history.at(-1).content=(lang==='ar'?'حدث خطأ: ':'Error: ')+e.message;toast(e.message||(lang==='ar'?'تعذر إرسال الرسالة':'Could not send message'))}
+    render();
+  }finally{
+    streaming=false;controller=null;$('status').textContent='';$('sendBtn').classList.remove('sending');$('sendBtn').innerHTML=ICONS.send;
+  }
+}
 function regenerate(){if(streaming)return;const idx=[...history].map(x=>x.role).lastIndexOf('user');if(idx<0)return;const text=history[idx].content;history=history.slice(0,idx);$('prompt').value=text;sendMessage()}
 function copyMsg(i){navigator.clipboard?.writeText(history[i]?.content||'').then(()=>toast('تم النسخ')).catch(()=>toast('تعذر النسخ'))}
 function exportChat(){if(!history.length)return toast('لا توجد محادثة لتصديرها');const text=history.map(m=>`${m.role==='user'?'أنت':'AiWay'}:\n${m.content}`).join('\n\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.download='pi-ai-chat.txt';a.click();URL.revokeObjectURL(a.href)}
