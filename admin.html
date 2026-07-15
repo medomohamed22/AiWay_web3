@@ -1,249 +1,54 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#3f1f9c">
-<title>AppHub</title>
-<script defer src="https://sdk.minepi.com/pi-sdk.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#6f2dbd">
+<title>AiWay Admin</title>
+<link rel="icon" type="image/png" href="/aiway-logo.png">
 <style>
-:root{--p:#6d3fe6;--p2:#8b63ff;--pd:#3f1f9c;--p-soft:#efe9ff;--bg:#f5f3fb;--ink:#181527;--mut:#84809333;--mut2:#84809d;--line:#eae7f4;--line-strong:#dcd5ee;--ok:#0f9e73;--ok-soft:#e1f8ee;--gold:#c9861a;--gold-soft:#fbf0da;--bad:#e0475b;--bad-soft:#ffe7ea;--r-lg:22px;--r-md:16px;--r-sm:12px;--shadow:0 14px 34px -16px rgba(31,14,79,.22);--shadow-sm:0 6px 16px -8px rgba(31,14,79,.16);--font-d:'Sora',system-ui,sans-serif;--font-b:'Inter',system-ui,sans-serif;--font-m:'JetBrains Mono',monospace}
-*{box-sizing:border-box}
-body{margin:0;font-family:var(--font-b);background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
-h1,h2,h3{font-family:var(--font-d)}
-button,a{font:inherit}
-button{cursor:pointer}
-.top{position:sticky;top:0;z-index:20;background:#fffffff2;border-bottom:1px solid var(--line);backdrop-filter:blur(16px)}
-.topin{max-width:1080px;margin:auto;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-.brand{font-size:19px;font-weight:800;font-family:var(--font-d);letter-spacing:-.02em;display:flex;align-items:center;gap:9px}
-.brand b{color:var(--p)}
-.mark{width:30px;height:30px;border-radius:9px;background:conic-gradient(from 220deg,var(--p2),var(--pd),var(--p2));display:grid;place-items:center;color:#fff;font-weight:800;font-size:15px;flex:0 0 auto;box-shadow:0 4px 12px #6d3fe655}
-
-.siteBrandWrap{display:flex;align-items:center;gap:9px;min-width:0;flex:0 1 250px}
-.siteBrand{display:inline-flex;align-items:center;min-width:0;text-decoration:none;height:42px;max-width:190px}
-.siteBrandLogo{display:block;width:100%;height:100%;object-fit:contain;object-position:left center}
-.adminBadge{color:var(--p);font:800 12px/1 var(--font-d);white-space:nowrap}
-@media(max-width:420px){.siteBrandWrap{flex-basis:165px;gap:6px}.siteBrand{height:35px;max-width:125px}.adminBadge{font-size:10px}}
-
-.account,.primary,.ghost,.danger{border:0;border-radius:999px;padding:10px 15px;font-weight:750;font-size:13.5px;transition:.15s}
-.account,.primary{background:linear-gradient(135deg,var(--p2),var(--pd));color:#fff;box-shadow:0 6px 16px -6px #3f1f9c66}
-.account{max-width:54vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ghost{background:var(--p-soft);color:var(--pd)}
-.danger{background:var(--bad-soft);color:var(--bad)}
-.wrap{max-width:1080px;margin:auto;padding:20px 16px 60px}
-.hero{position:relative;overflow:hidden;background:radial-gradient(120% 140% at 10% 0%,#8a5df0 0%,#5324c4 46%,#2a1268 100%);color:#fff;border-radius:var(--r-lg);padding:26px;margin-bottom:16px;box-shadow:var(--shadow)}
-.hero::before{content:"";position:absolute;right:-50px;top:-50px;width:180px;height:180px;border-radius:50%;border:1px solid #ffffff26}
-.hero h1{margin:0 0 8px;font-size:clamp(22px,4.6vw,30px);letter-spacing:-.02em}
-.hero p{margin:0;opacity:.82;font-size:13.5px;line-height:1.55;max-width:520px}
-a.back{color:var(--pd);font-weight:700;text-decoration:none;font-size:13.5px;display:inline-block;margin-bottom:14px}
-.notice{padding:14px 15px;border-radius:var(--r-sm);background:var(--gold-soft);color:var(--gold);margin:14px 0;font-size:13.5px;line-height:1.5}
-.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:16px 0}
-.stat,.panel,.reviewCard{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg)}
-.stat{padding:18px;box-shadow:var(--shadow-sm)}
-.stat span{color:var(--mut2);font-size:12px;font-family:var(--font-m)}
-.stat b{font-size:26px;display:block;margin-top:6px;font-family:var(--font-d)}
-.panel{padding:18px;box-shadow:var(--shadow-sm)}
-.reviewList{display:grid;gap:16px;margin-top:14px}
-.reviewCard{padding:18px;overflow:hidden;box-shadow:var(--shadow-sm);transition:.15s}
-.reviewCard:hover{box-shadow:var(--shadow)}
-.appTop{display:flex;align-items:center;gap:13px}
-.logo{width:68px;height:68px;border-radius:17px;object-fit:cover;background:var(--p-soft);border:1px solid var(--line);flex:0 0 auto}
-.title{margin:0 0 5px;font-size:19px;letter-spacing:-.01em}
-.subline{color:var(--mut2);font-size:12.5px;line-height:1.5;font-family:var(--font-m)}
-.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.badge{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;font-size:9.5px;font-weight:800;background:var(--p-soft);color:var(--pd);font-family:var(--font-m);letter-spacing:.03em}
-.badge.pending{background:var(--gold-soft);color:var(--gold)}
-.badge.published{background:var(--ok-soft);color:var(--ok)}
-.badge.rejected,.badge.suspended{background:var(--bad-soft);color:var(--bad)}
-.desc{font-size:14px;line-height:1.7;margin:16px 0;color:#38343f}
-.infoGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}
-.info{border:1px solid var(--line);background:#faf9fc;border-radius:13px;padding:11px}
-.info span{display:block;color:var(--mut2);font-size:10.5px;margin-bottom:4px;font-family:var(--font-m);text-transform:uppercase;letter-spacing:.03em}
-.info b,.info a{font-size:13px;color:var(--ink);word-break:break-word;text-decoration:none}
-.info a{color:var(--p)}
-.sectionLabel{font-size:13px;font-weight:800;margin:18px 0 9px;color:var(--ink-soft,#4c4760);font-family:var(--font-m);text-transform:uppercase;letter-spacing:.03em}
-.screens{display:flex;align-items:flex-start;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 2px 10px}
-.screen{position:relative;flex:0 0 min(80vw,340px);scroll-snap-align:start;border:1px solid var(--line);border-radius:17px;overflow:hidden;background:#f3f1f7;box-shadow:var(--shadow-sm)}
-.screen button{display:block;width:100%;padding:0;border:0;background:transparent;text-align:inherit;cursor:zoom-in}
-.screen img{display:block;width:100%;aspect-ratio:9/16;object-fit:contain;background:#17131f}
-.screenCaption{position:absolute;left:10px;bottom:10px;padding:6px 9px;border-radius:999px;background:#181527cc;color:#fff;font-size:10.5px;font-weight:800;backdrop-filter:blur(8px);pointer-events:none}
-.imageModal{position:fixed;inset:0;z-index:120;display:none;place-items:center;padding:16px;background:#100a20dd;backdrop-filter:blur(12px)}.imageModal.open{display:grid}.imageDialog{position:relative;width:min(100%,980px);max-height:calc(100dvh - 32px);display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px}.imageModalTop{display:flex;justify-content:space-between;align-items:center;gap:12px;color:#fff}.imageModalTop b{font-family:var(--font-d)}.imageClose{width:42px;height:42px;border:1px solid #ffffff2d;border-radius:50%;background:#ffffff18;color:#fff;font-size:24px}.imageStage{min-height:0;display:grid;place-items:center;overflow:auto;border:1px solid #ffffff24;border-radius:22px;background:#090612;box-shadow:0 30px 90px -28px #000}.imageStage img{display:block;max-width:100%;max-height:calc(100dvh - 120px);width:auto;height:auto;object-fit:contain}
-.websiteBar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px;border:1px solid var(--line);border-radius:14px;background:#faf9fc}
-.websiteText{min-width:0}
-.websiteText span{display:block;color:var(--mut2);font-size:10.5px;font-family:var(--font-m);text-transform:uppercase;letter-spacing:.03em}
-.websiteText a{display:block;color:var(--pd);font-weight:750;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:15px;border-top:1px solid var(--line)}
-.actions button{flex:1;min-width:96px}
-.rejectModal{position:fixed;inset:0;z-index:100;display:none;place-items:center;padding:16px;background:#18152799;backdrop-filter:blur(7px)}.rejectModal.open{display:grid}.rejectDialog{width:min(100%,520px);background:#fff;border:1px solid var(--line);border-radius:22px;padding:20px;box-shadow:0 24px 70px -18px #160b36}.rejectDialog h3{margin:0 0 7px}.rejectDialog p{margin:0 0 14px;color:var(--mut2);font-size:13px;line-height:1.55}.rejectDialog textarea{width:100%;min-height:130px;resize:vertical;border:1px solid var(--line);border-radius:13px;padding:13px;outline:none}.rejectDialog textarea:focus{border-color:var(--p);box-shadow:0 0 0 4px var(--p-soft)}.rejectActions{display:flex;gap:8px;margin-top:12px}.rejectActions button{flex:1}
-.empty{text-align:center;padding:40px 20px;color:var(--mut2);border:1px dashed var(--line-strong);border-radius:var(--r-lg);background:#fff;font-size:13.5px}
-.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);opacity:0;background:#211b2c;color:#fff;padding:12px 17px;border-radius:999px;transition:.2s;z-index:50;font-size:13.5px;box-shadow:0 12px 30px -10px #00000055}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.row{display:flex;gap:7px;flex-wrap:wrap}
-.meta{color:var(--mut2);font-size:12px}.reportBox{margin-top:14px;padding:12px;border:1px solid #ffd2d8;background:#fff7f8;border-radius:13px}.reportItem{padding:8px 0;border-bottom:1px solid #f2dfe2;font-size:12px}.reportItem:last-child{border-bottom:0}.verifiedText{color:#0f9e73;font-weight:800}.analyticsRow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}.analyticsItem{background:#faf9fc;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}.analyticsItem b{display:block}.analyticsItem span{font-size:10px;color:var(--mut2)}
-@media(max-width:760px){
-  .topin{padding:10px 12px}
-  .brand{font-size:17px}
-  .account{font-size:12.5px;padding:9px 12px}
-  .wrap{padding:16px 12px 50px}
-  .hero{padding:20px}
-  .stats{grid-template-columns:1fr 1fr}
-  .stat b{font-size:21px}
-  .reviewCard{padding:14px}
-  .logo{width:58px;height:58px;border-radius:14px}
-  .title{font-size:17px}
-  .infoGrid{grid-template-columns:1fr}
-  .screen{flex-basis:86vw}
-  .websiteBar{align-items:flex-start;flex-direction:column}
-  .websiteBar .primary{width:100%;text-align:center}
-  .actions button{min-width:0}
-}
-
-/* v16 responsive, performance and loading UX */
-html{scroll-behavior:smooth;text-size-adjust:100%}
-body{min-height:100dvh;overflow-x:hidden}
-img{max-width:100%;content-visibility:auto}
-button,a,input,select,textarea{-webkit-tap-highlight-color:transparent}
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid color-mix(in srgb,var(--p,#6d3fe6) 28%,transparent);outline-offset:2px}
-.app-loading-bar{position:fixed;z-index:9999;top:0;left:0;height:3px;width:100%;pointer-events:none;opacity:0;transition:opacity .2s;background:linear-gradient(90deg,transparent,var(--p,#6d3fe6),#a887ff,transparent);background-size:220% 100%;animation:loadingSlide 1s linear infinite}
-.app-loading-bar.show{opacity:1}
-.page-loader{position:fixed;inset:0;z-index:9998;display:grid;place-items:center;background:color-mix(in srgb,var(--bg,#f5f3fb) 92%,white);transition:opacity .28s,visibility .28s}
-.page-loader.hide{opacity:0;visibility:hidden}
-.loader-card{display:grid;justify-items:center;gap:13px;padding:24px;color:var(--ink-soft,#4c4760);font-weight:700;font-size:13px}
-.loader-orbit{width:52px;height:52px;border-radius:50%;border:4px solid color-mix(in srgb,var(--p,#6d3fe6) 15%,transparent);border-top-color:var(--p,#6d3fe6);animation:spin .75s linear infinite;box-shadow:0 8px 28px -12px rgba(63,31,156,.4)}
-.is-busy{position:relative;pointer-events:none;opacity:.78}
-.is-busy::after{content:"";display:inline-block;width:14px;height:14px;margin-inline-start:8px;vertical-align:-2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .65s linear infinite}
-.skeleton{position:relative;overflow:hidden;background:color-mix(in srgb,var(--line,#e9e5f4) 66%,white);border-radius:14px;min-height:84px}
-.skeleton::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);animation:shimmer 1.25s infinite}
-.skeleton-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-@keyframes spin{to{transform:rotate(360deg)}}
-@keyframes shimmer{100%{transform:translateX(100%)}}
-@keyframes loadingSlide{to{background-position:-220% 0}}
-@media(max-width:719px){
-  .topin{padding-inline:max(12px,env(safe-area-inset-left)) max(12px,env(safe-area-inset-right))}
-  .page,.wrap{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
-  .hero{border-radius:20px;padding:23px 18px}
-  .hero h1{font-size:clamp(25px,9vw,34px)}
-  .form{grid-template-columns:1fr!important}.field{grid-column:1/-1!important}
-  .previewRow{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-  .row{flex-wrap:wrap}.row>.primary,.row>.ghost,.row>.danger{min-height:46px}
-  .appRow{grid-template-columns:54px minmax(0,1fr) auto;gap:10px;padding:11px}
-  .appRowLogo{width:54px;height:54px;border-radius:14px}.getBtn{padding:9px 13px;min-width:56px}
-  .analytics{grid-template-columns:repeat(2,1fr)}
-  .modalCard{width:min(100% - 16px,620px);max-height:calc(100dvh - 20px);overflow:auto;border-radius:20px}
-  .bottom{padding-bottom:max(8px,env(safe-area-inset-bottom))}
-  .navbtn{min-width:0;font-size:10px}.navbtn svg{width:21px;height:21px}
-  .skeleton-grid{grid-template-columns:1fr}
-}
-@media(max-width:420px){
-  .brand{font-size:16px}.mark{width:29px;height:29px}.login,.account{max-width:46vw;padding:9px 11px}
-  .previewRow{gap:8px}.preview{border-radius:13px}
-  .sectionTitle{align-items:flex-start;gap:8px}.sectionTitle h2{font-size:18px}
-  .appHead{grid-template-columns:72px minmax(0,1fr)!important}.appHead>.get{grid-column:1/-1;width:100%;margin-top:2px}
-  .stats{grid-template-columns:repeat(2,1fr)!important}
-}
-@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.loader-orbit,.app-loading-bar,.skeleton::after,.is-busy::after{animation-duration:1.5s}}
-
+:root{--p:#6f2dbd;--p2:#9a55e8;--bg:#f7f3fb;--card:#fff;--ink:#21162d;--muted:#766d80;--line:#e8ddf0;--ok:#12805c;--bad:#c53e57;--shadow:0 18px 50px rgba(70,34,100,.12)}*{box-sizing:border-box}body{margin:0;font-family:Inter,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}button,input{font:inherit}.hidden{display:none!important}.loginView{min-height:100dvh;display:grid;place-items:center;padding:20px}.loginCard{width:min(430px,100%);background:var(--card);border:1px solid var(--line);border-radius:28px;padding:28px;box-shadow:var(--shadow)}.logo{width:78px;height:78px;border-radius:22px;display:block;object-fit:cover;margin:0 auto 18px}.loginCard h1{text-align:center;margin:0 0 8px}.loginCard p{text-align:center;color:var(--muted);margin:0 0 24px}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:13px;font-weight:800}.field input{width:100%;height:50px;border:1px solid var(--line);border-radius:14px;padding:0 14px;outline:0}.field input:focus{border-color:var(--p);box-shadow:0 0 0 4px #efe4fa}.btn{border:0;border-radius:14px;min-height:48px;padding:11px 16px;font-weight:800;cursor:pointer}.primary{width:100%;color:#fff;background:linear-gradient(135deg,var(--p),var(--p2));box-shadow:0 10px 24px rgba(111,45,189,.22)}.error{min-height:22px;color:var(--bad);font-size:13px;text-align:center;margin-top:10px}.topbar{position:sticky;top:0;z-index:10;background:#ffffffed;border-bottom:1px solid var(--line);backdrop-filter:blur(14px)}.topin{max-width:1180px;margin:auto;padding:12px 18px;display:flex;align-items:center;gap:12px}.brand{display:flex;align-items:center;gap:10px;font-weight:900}.brand img{width:42px;height:42px;border-radius:13px}.spacer{flex:1}.ghost{background:#efe8f7;color:var(--p)}.wrap{max-width:1180px;margin:auto;padding:24px 16px 60px}.hero{padding:24px;border-radius:24px;color:#fff;background:linear-gradient(135deg,#4f1b91,#8d48d8);box-shadow:var(--shadow)}.hero h1{margin:0 0 7px}.hero p{margin:0;opacity:.84}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:0 8px 25px rgba(65,33,90,.06)}.stat span{display:block;color:var(--muted);font-size:12px;margin-bottom:7px}.stat b{font-size:clamp(22px,4vw,32px)}.finance{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.finance h2{margin:0 0 14px;font-size:19px}.metric{display:flex;justify-content:space-between;gap:15px;padding:12px 0;border-bottom:1px solid var(--line)}.metric:last-child{border-bottom:0}.metric span{color:var(--muted)}.metric b{text-align:right}.profit{color:var(--ok)}.recharge{font-size:30px;color:var(--p);display:block;margin:8px 0}.note{color:var(--muted);font-size:13px;line-height:1.7}.stamp{color:var(--muted);font-size:12px;margin-top:14px}.toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);opacity:0;background:#24182d;color:#fff;padding:11px 16px;border-radius:13px;transition:.2s}.toast.show{opacity:1;transform:translate(-50%,0)}@media(max-width:850px){.stats{grid-template-columns:repeat(2,1fr)}.finance{grid-template-columns:1fr}}@media(max-width:480px){.topin{padding:10px 12px}.brand span{display:none}.wrap{padding:16px 12px 40px}.hero{padding:20px}.stats{gap:9px}.card{padding:15px}.stat b{font-size:24px}}
 </style>
 </head>
-<body><div class="app-loading-bar" id="appLoadingBar" aria-hidden="true"></div><div class="page-loader" id="pageLoader" role="status" aria-live="polite"><div class="loader-card"><div class="loader-orbit"></div><span>Loading AppHub…</span></div></div>
-<header class="top"><div class="topin"><div class="siteBrandWrap"><a class="siteBrand" href="/" aria-label="AppHub home"><img class="siteBrandLogo" src="/assets/site-logo.png" alt="AppHub"></a><span class="adminBadge">Admin</span></div><button class="account" id="accountBtn" onclick="handleAccount()">Sign in with Pi</button></div></header>
-<main class="wrap">
-<a class="back" href="/">← Back to AppHub</a>
-<div class="hero"><h1>Admin dashboard</h1><p>Review every app's logo, full screenshots, owner details, and website before publishing.</p></div>
-<div id="accessNotice" class="notice">Sign in using the Pi account registered as admin in the database.</div>
-<section id="dashboard" hidden>
-<div class="stats"><div class="stat"><span>Total revenue</span><b id="revenue">0 Pi</b></div><div class="stat"><span>Pending apps</span><b id="pendingCount">0</b></div></div>
-<div class="panel"><div class="row" style="justify-content:space-between;align-items:center"><div><h2 style="margin:0;font-size:17px">Review queue</h2><div class="meta">Open the website and inspect all three screenshots before choosing an action.</div></div><button class="ghost" onclick="loadAdmin()">Refresh</button></div></div>
-<div id="adminApps" class="reviewList"></div>
+<body>
+<section class="loginView" id="loginView">
+  <form class="loginCard" id="loginForm">
+    <img class="logo" src="/aiway-logo.png" alt="AiWay">
+    <h1>Admin sign in</h1>
+    <p>Secure database-backed access to AiWay analytics.</p>
+    <div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required></div>
+    <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required></div>
+    <button class="btn primary" id="loginButton">Sign in</button>
+    <div class="error" id="loginError"></div>
+  </form>
 </section>
+<section id="dashboard" class="hidden">
+<header class="topbar"><div class="topin"><div class="brand"><img src="/aiway-logo.png" alt=""><span>AiWay Admin</span></div><div class="spacer"></div><button class="btn ghost" id="refreshBtn">Refresh</button><button class="btn ghost" id="logoutBtn">Sign out</button></div></header>
+<main class="wrap">
+  <section class="hero"><h1>Business dashboard</h1><p>Users, purchases, Pi income, dollar value, estimated OpenRouter funding, and retained profit.</p></section>
+  <section class="stats">
+    <article class="card stat"><span>Regular users</span><b id="users">—</b></article>
+    <article class="card stat"><span>Package buyers</span><b id="buyers">—</b></article>
+    <article class="card stat"><span>Purchase requests</span><b id="requests">—</b></article>
+    <article class="card stat"><span>Completed purchases</span><b id="completed">—</b></article>
+  </section>
+  <section class="finance">
+    <article class="card"><h2>Collected revenue</h2><div class="metric"><span>Total Pi paid</span><b id="totalPi">—</b></div><div class="metric"><span>Total dollar value</span><b id="totalUsd">—</b></div><div class="metric"><span>Current PI/USD</span><b id="piRate">—</b></div><div class="metric"><span>Configured markup</span><b id="markup">—</b></div></article>
+    <article class="card"><h2>Recommended allocation</h2><span class="note">Estimated amount to fund on OpenRouter after removing your margin:</span><b class="recharge" id="recharge">—</b><div class="metric"><span>Keep as profit (USD)</span><b class="profit" id="profitUsd">—</b></div><div class="metric"><span>Profit equivalent (Pi)</span><b class="profit" id="profitPi">—</b></div><div class="metric"><span>Profit margin</span><b class="profit" id="margin">—</b></div><p class="note">This estimate uses the app's markup constant. Actual profit can vary with provider usage, fees, refunds, and PI/USD changes.</p></article>
+  </section>
+  <div class="stamp" id="stamp"></div>
 </main>
-<div class="imageModal" id="imageModal" role="dialog" aria-modal="true" aria-labelledby="imageModalTitle"><div class="imageDialog"><div class="imageModalTop"><b id="imageModalTitle">App screenshot</b><button class="imageClose" type="button" aria-label="Close image" onclick="closeImageModal()">×</button></div><div class="imageStage" onclick="event.stopPropagation()"><img id="imageModalImg" alt="Expanded app screenshot"></div></div></div>
-<div class="rejectModal" id="rejectModal" role="dialog" aria-modal="true" aria-labelledby="rejectTitle"><div class="rejectDialog"><h3 id="rejectTitle">Reject application</h3><p>Write a clear reason. The developer will see this message in their applications page and can edit and resubmit for free.</p><textarea id="rejectReason" maxlength="500" placeholder="Example: Please replace screenshot 1 because it is unclear, and update the website URL."></textarea><div class="rejectActions"><button class="ghost" type="button" onclick="closeRejectModal()">Cancel</button><button class="danger" id="confirmRejectBtn" type="button" onclick="confirmReject()">Send rejection</button></div></div></div><div class="toast" id="toast"></div>
+</section>
+<div class="toast" id="toast"></div>
 <script>
-const API={login:'/api/pi-login',admin:'/api/admin-apps',stats:'/api/admin-apps?mode=stats'};
-let auth=JSON.parse(localStorage.getItem('apphub_auth')||'null');
-addEventListener('DOMContentLoaded',async()=>{if(window.Pi)Pi.init({version:'2.0',sandbox:false});restore();if(isAdmin())await loadAdmin()});
-function headers(){return{'Content-Type':'application/json',...(auth?.token?{Authorization:'Bearer '+auth.token}:{})}}
-function toast(message){const el=document.getElementById('toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),3000)}
-function isAdmin(){return ['admin','moderator'].includes(String(auth?.user?.role||'').toLowerCase())}
-function restore(){const btn=document.getElementById('accountBtn'),notice=document.getElementById('accessNotice'),dashboard=document.getElementById('dashboard');if(auth?.user){btn.textContent='@'+auth.user.username;btn.title='Tap to sign out'}else{btn.textContent='Sign in with Pi';btn.title=''}if(isAdmin()){notice.hidden=true;dashboard.hidden=false}else{dashboard.hidden=true;notice.hidden=false;notice.textContent=auth?.user?'This Pi account is not registered as an admin. Tap your username to sign out and use the admin account.':'Sign in using the Pi account registered as admin in the database.'}}
-function handleAccount(){if(auth?.token)return logout();loginWithPi()}
-function logout(){auth=null;localStorage.removeItem('apphub_auth');localStorage.removeItem('apphub_pending_submission');restore();document.getElementById('adminApps').innerHTML='';toast('Signed out')}
-async function loginWithPi(){if(!window.Pi)return toast('Open this page inside Pi Browser');try{const result=await Pi.authenticate(['username','payments'],payment=>console.warn('Incomplete payment',payment));const response=await fetch(API.login,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessToken:result.accessToken})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Pi sign-in failed');auth=data;localStorage.setItem('apphub_auth',JSON.stringify(auth));restore();if(!isAdmin())return toast('This account is not an admin');toast('Admin signed in');await loadAdmin()}catch(error){console.error(error);toast(error.message||'Sign-in failed')}}
-async function loadAdmin(){if(!isAdmin())return restore();try{const [appsResponse,statsResponse]=await Promise.all([fetch(API.admin,{headers:headers()}),fetch(API.stats,{headers:headers()})]);const appsData=await appsResponse.json(),statsData=await statsResponse.json();if(appsResponse.status===401||appsResponse.status===403){logout();throw new Error(appsData.error||'Admin access required')}if(!appsResponse.ok)throw new Error(appsData.error||'Unable to load apps');if(!statsResponse.ok)throw new Error(statsData.error||'Unable to load statistics');document.getElementById('revenue').textContent=Number(statsData.totalRevenuePi||0).toFixed(2)+' Pi';document.getElementById('pendingCount').textContent=statsData.pendingApps||0;const list=appsData.apps||[];document.getElementById('adminApps').innerHTML=list.length?list.map(card).join(''):'<div class="empty">No submitted apps found.</div>'}catch(error){console.error(error);toast(error.message||'Unable to load dashboard')}}
-function formatDate(value){if(!value)return '—';try{return new Intl.DateTimeFormat('en',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value))}catch{return String(value)}}
-function card(app){
-  const screenshots=Array.isArray(app.screenshot_urls)?app.screenshot_urls.filter(Boolean):[];
-  const screenshotHtml=screenshots.length?screenshots.map((url,index)=>`<div class="screen"><button type="button" data-url="${esc(url)}" data-title="${esc(app.name)} screenshot ${index+1}" onclick="openImageModal(this.dataset.url,this.dataset.title)" aria-label="Open ${esc(app.name)} screenshot ${index+1}"><img src="${esc(url)}" alt="${esc(app.name)} screenshot ${index+1}" loading="lazy" decoding="async"><span class="screenCaption">Screenshot ${index+1} · Tap to enlarge</span></button></div>`).join(''):'<div class="empty">No screenshots uploaded.</div>';
-  const website=String(app.website_url||'').trim();
-  return `<article class="reviewCard">
-    <div class="appTop">
-      <img class="logo" src="${esc(app.icon_url||'')}" alt="${esc(app.name)} logo">
-      <div>
-        <h3 class="title">${esc(app.name)}</h3>
-        <div class="subline">Submitted by @${esc(app.users?.username||'unknown')}</div>
-        <div class="badges"><span class="badge">${esc(app.category)}</span><span class="badge">${esc(app.network)}</span><span class="badge ${esc(app.status)}">${esc(app.status)}</span></div>
-      </div>
-    </div>
-    <p class="desc">${esc(app.short_description||'No description provided.')}</p>
-    <div class="infoGrid">
-      <div class="info"><span>Developer</span><b>${esc(app.developer_name||'—')}</b></div>
-      <div class="info"><span>Contact email</span><a href="mailto:${esc(app.contact_email||'')}">${esc(app.contact_email||'—')}</a></div>
-      <div class="info"><span>Submitted</span><b>${esc(formatDate(app.created_at))}</b></div>
-      <div class="info"><span>App ID</span><b>${esc(app.id)}</b></div>
-    </div>
-    <div class="websiteBar">
-      <div class="websiteText"><span>Website URL</span><a href="${esc(website)}" target="_blank" rel="noopener noreferrer">${esc(website||'No website URL')}</a></div>
-      ${website?`<a class="primary" href="${esc(website)}" target="_blank" rel="noopener noreferrer">Open website</a>`:''}
-    </div>
-    <div class="analyticsRow"><div class="analyticsItem"><b>${Number(app.views_count||0)}</b><span>Views</span></div><div class="analyticsItem"><b>${Number(app.get_clicks_count||0)}</b><span>Get clicks</span></div><div class="analyticsItem"><b>${Number(app.rating||0).toFixed(1)}</b><span>Rating</span></div><div class="analyticsItem"><b>${Number(app.ratings_count||0)}</b><span>Ratings</span></div></div>
-    <div class="sectionLabel">Screenshots (${screenshots.length}/3)</div>
-    <div class="screens">${screenshotHtml}</div>
-    ${(app.reports||[]).length?`<div class="reportBox"><b>${(app.reports||[]).filter(r=>r.status==='open').length} open report(s)</b>${(app.reports||[]).map(r=>`<div class="reportItem"><b>${esc(r.reason)}</b> by @${esc(r.users?.username||'unknown')} · ${esc(r.status)}<br>${esc(r.details||'No details')}</div>`).join('')}<button class="ghost" style="margin-top:8px" onclick="resolveReports('${app.id}')">Mark open reports reviewed</button></div>`:''}
-    <div class="actions">
-      <button class="primary" onclick="review('${app.id}','published')">Approve</button>
-      <button class="danger" onclick="openRejectModal('${app.id}')">Reject</button>
-      <button class="ghost" onclick="review('${app.id}','suspended')">Suspend</button>
-      <button class="ghost" onclick="setVerified('${app.id}',${!app.is_verified})">${app.is_verified?'Remove verification':'Verify app'}</button>
-    </div>
-  </article>`
-}
-async function setVerified(id,isVerified){try{const response=await fetch(API.admin,{method:'PATCH',headers:headers(),body:JSON.stringify({id,isVerified})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to update verification');toast(isVerified?'App verified':'Verification removed');await loadAdmin()}catch(error){toast(error.message)}}
-async function resolveReports(id){try{const response=await fetch(API.admin,{method:'PATCH',headers:headers(),body:JSON.stringify({id,reportStatus:'reviewed'})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to update reports');toast('Reports marked reviewed');await loadAdmin()}catch(error){toast(error.message)}}
-let rejectingAppId='';
-function openRejectModal(id){rejectingAppId=id;rejectReason.value='';rejectModal.classList.add('open');setTimeout(()=>rejectReason.focus(),50)}
-function closeRejectModal(){rejectingAppId='';rejectModal.classList.remove('open')}
-async function confirmReject(){const reason=rejectReason.value.trim();if(reason.length<8)return toast('Write a clear rejection reason');const btn=confirmRejectBtn;btn.disabled=true;btn.classList.add('is-busy');try{await review(rejectingAppId,'rejected',reason);closeRejectModal()}finally{btn.disabled=false;btn.classList.remove('is-busy')}}
-async function review(id,status,adminNote=''){try{const response=await fetch(API.admin,{method:'PATCH',headers:headers(),body:JSON.stringify({id,status,adminNote,isFeatured:false})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to update app');toast(status==='rejected'?'Rejection message sent to developer':'App status updated');await loadAdmin()}catch(error){toast(error.message||'Review failed');throw error}}
-function openImageModal(url,title){imageModalImg.src=url;imageModalImg.alt=title;imageModalTitle.textContent=title;imageModal.classList.add('open');document.body.style.overflow='hidden'}
-function closeImageModal(){imageModal.classList.remove('open');imageModalImg.removeAttribute('src');document.body.style.overflow=''}
-imageModal.addEventListener('click',closeImageModal);document.addEventListener('keydown',event=>{if(event.key==='Escape'&&imageModal.classList.contains('open'))closeImageModal()});
-function esc(value){return String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]))}
+const $=id=>document.getElementById(id);let token=localStorage.getItem('aiway_admin_token')||'';
+function money(n){return '$'+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}function pi(n){return Number(n||0).toLocaleString(undefined,{maximumFractionDigits:7})+' Pi'}
+function toast(t){$('toast').textContent=t;$('toast').classList.add('show');setTimeout(()=>$('toast').classList.remove('show'),2200)}
+async function request(url,options={}){const r=await fetch(url,{...options,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(options.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'Request failed');return d}
+function showDashboard(){ $('loginView').classList.add('hidden');$('dashboard').classList.remove('hidden'); }
+function showLogin(){ $('dashboard').classList.add('hidden');$('loginView').classList.remove('hidden'); }
+async function loadStats(){try{const d=await request('/api/admin-stats');showDashboard();$('users').textContent=d.users.toLocaleString();$('buyers').textContent=d.buyers.toLocaleString();$('requests').textContent=d.purchaseRequests.toLocaleString();$('completed').textContent=d.completedPurchases.toLocaleString();$('totalPi').textContent=pi(d.totalPi);$('totalUsd').textContent=money(d.totalUsd);$('piRate').textContent=d.currentPiUsd?money(d.currentPiUsd):'Unavailable';$('markup').textContent=d.markup.toFixed(2)+'×';$('recharge').textContent=money(d.openRouterRechargeUsd);$('profitUsd').textContent=money(d.profitUsd);$('profitPi').textContent=pi(d.profitPi);$('margin').textContent=d.profitMarginPercent.toFixed(2)+'%';$('stamp').textContent='Updated '+new Date(d.generatedAt).toLocaleString()}catch(e){if(/session|expired|401|403/i.test(e.message)){token='';localStorage.removeItem('aiway_admin_token');showLogin()}else toast(e.message)}}
+$('loginForm').onsubmit=async e=>{e.preventDefault();$('loginError').textContent='';$('loginButton').disabled=true;try{const d=await request('/api/admin-login',{method:'POST',body:JSON.stringify({email:$('email').value,password:$('password').value})});token=d.token;localStorage.setItem('aiway_admin_token',token);await loadStats()}catch(err){$('loginError').textContent=err.message}finally{$('loginButton').disabled=false}};
+$('refreshBtn').onclick=()=>loadStats().then(()=>toast('Dashboard refreshed'));$('logoutBtn').onclick=()=>{token='';localStorage.removeItem('aiway_admin_token');showLogin()};if(token)loadStats();
 </script>
-
-<script>
-(function(){
-  const bar=document.getElementById('appLoadingBar');
-  const loader=document.getElementById('pageLoader');
-  let pending=0;
-  const show=()=>{pending++;bar&&bar.classList.add('show')};
-  const hide=()=>{pending=Math.max(0,pending-1);if(!pending)bar&&bar.classList.remove('show')};
-  const originalFetch=window.fetch.bind(window);
-  window.fetch=async function(){show();try{return await originalFetch(...arguments)}finally{hide()}};
-  window.addEventListener('load',()=>setTimeout(()=>loader&&loader.classList.add('hide'),120));
-  setTimeout(()=>loader&&loader.classList.add('hide'),4500);
-  document.addEventListener('click',e=>{
-    const btn=e.target.closest('button[type="submit"],button.primary,.get,.login,.account');
-    if(!btn||btn.disabled||btn.classList.contains('navbtn'))return;
-    btn.classList.add('is-busy');
-    setTimeout(()=>btn.classList.remove('is-busy'),5000);
-  });
-  document.addEventListener('load',e=>{if(e.target instanceof HTMLImageElement)e.target.classList.add('image-ready')},true);
-  document.querySelectorAll('img').forEach(img=>{if(!img.loading)img.loading='lazy';img.decoding='async'});
-})();
-</script>
-
-</body>
-</html>
+</body></html>

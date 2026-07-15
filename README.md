@@ -60,3 +60,14 @@ The file is idempotent and contains the users, conversations, messages, payments
 
 ## Attachments and generated images
 Run `sql/generated-images-migration.sql` once. User uploads remain only in the browser IndexedDB and are sent to the selected AI only with the current request. Generated 512px compressed images are saved in `generated_images`.
+
+## Admin dashboard setup
+
+1. Run `sql/schema.sql` in Supabase SQL Editor.
+2. Generate a secure password hash locally:
+   `node scripts/create-admin-hash.js "YourStrongPassword"`
+3. Insert the returned hash into Supabase:
+   `insert into public.admin_accounts(email,password_hash,display_name) values ('admin@example.com','PASTE_HASH','Main Admin');`
+4. Open `/admin.html` and sign in.
+
+The dashboard calculates estimated OpenRouter recharge as collected USD divided by the configured `MARKUP`, and shows the remaining estimated profit in USD and Pi.
