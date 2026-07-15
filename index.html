@@ -153,6 +153,23 @@ async function loadModels(){
   return data;
 }
 async function init(){applyLanguage();initPi();try{await loadModels()}catch(e){toast(e.message)}render();if(auth){try{await refreshMe();await loadModels();await loadChats()}catch(e){toast(lang==='ar'?'انتهت الجلسة، سجّل الدخول من جديد':'Session expired. Please sign in again.')}}}
+
+async function recoverIncompletePayment(payment,{silent=false}={}){
+  const paymentId=payment?.identifier||payment?.paymentId||payment?.id;
+  const txid=payment?.transaction?.txid||payment?.txid;
+  const packageId=payment?.metadata?.packageId||payment?.metadata?.package_id;
+  if(!paymentId){if(!silent)toast(lang==='ar'?'لم يتم العثور على معرّف الدفعة':'Payment ID was not found');return false}
+  try{
+    await api('/api/payment-complete',{method:'POST',body:JSON.stringify({paymentId,txid:txid||null,packageId:packageId||null,recover:true})});
+    await Promise.all([refreshMe(),loadModels()]);
+    if(!silent)toast(lang==='ar'?'تم إنهاء الدفعة المعلقة وإضافة الرصيد':'Pending payment completed and balance added');
+    return true;
+  }catch(e){
+    console.warn('Incomplete payment recovery:',e);
+    if(!silent)toast(e.message||(lang==='ar'?'تعذر إنهاء الدفعة المعلقة':'Could not complete the pending payment'));
+    return false;
+  }
+}
 async function authenticatePiForPayments({refreshSession=true,silentRecovery=true}={}){if(!piReady||!window.Pi?.authenticate)throw Error('افتح الموقع من Pi Browser وانتظر تحميل Pi SDK');let recovered=0;const result=await Pi.authenticate(['username','payments'],async payment=>{if(await recoverIncompletePayment(payment,{silent:silentRecovery}))recovered++});if(!result?.accessToken)throw Error('لم يرجع Pi رمز الدخول');if(refreshSession){const data=await api('/api/pi-login',{method:'POST',body:JSON.stringify({accessToken:result.accessToken,user:result.user||null})});auth=data;localStorage.setItem('pi_ai_auth',JSON.stringify(auth))}return {result,recovered}}
 async function login(){if(auth)return toast(lang==='ar'?'أنت مسجل بالفعل':'You are already signed in');const btn=$('loginBtn');btn.disabled=true;btn.querySelector('span:last-child').textContent=lang==='ar'?'جارٍ الدخول':'Signing in…';$('profileState').innerHTML='<span class="loading-dot"></span> <span class="loading-dot"></span> <span class="loading-dot"></span>';try{await authenticatePiForPayments({refreshSession:true,silentRecovery:true});await Promise.all([refreshMe(),loadModels(),loadChats()]);toast(userProfile?.has_purchased?(lang==='ar'?'تم تسجيل الدخول بنجاح':'Signed in successfully'):(lang==='ar'?`مرحبًا بك — لديك ${userProfile?.trial_messages_remaining||0} رسائل مجانية على DeepSeek V3`:`Welcome — you have ${userProfile?.trial_messages_remaining||0} free DeepSeek V3 messages`))}catch(e){console.error(e);$('profileState').textContent=lang==='ar'?'تعذر تسجيل الدخول':'Could not sign in';toast(e.message||(lang==='ar'?'فشل تسجيل الدخول بحساب Pi':'Pi sign-in failed'))}finally{btn.disabled=false;btn.querySelector('span:last-child').textContent=auth?I18N[lang].connected:I18N[lang].login}}
 function logout(show=true){auth=null;userProfile=null;current=null;history=[];localStorage.removeItem('pi_ai_auth');$('profileName').textContent=I18N[lang].guest;$('profileState').textContent=I18N[lang].signPi;$('credits').textContent='0';$('chats').innerHTML='';$('loginBtn').querySelector('span:last-child').textContent=I18N[lang].login;render();if(show)toast(lang==='ar'?'تم تسجيل الخروج':'Signed out')}
@@ -162,6 +179,48 @@ async function newChat(){if(!auth)return login();const d=await api('/api/convers
 async function openChat(id){try{const d=await api('/api/conversations?id='+encodeURIComponent(id));current=id;history=(d.conversation.messages||[]).map(m=>({...m,attachments:m.token_usage?.attachments||[],generatedImage:m.generated_images?.[0]||null}));$('model').value=d.conversation.model_id||$('model').value;render();await loadChats();closeMenu()}catch(e){toast(e.message)}}
 function welcome(){const en=lang==='en';return `<div class="welcome"><div class="hero-icon"><img src="/aiway-logo.png" alt="AiWay"></div><h1>${en?'How can I help you today?':'كيف أقدر أساعدك اليوم؟'}</h1><p>${en?'Choose the right AI model and ask in English, Arabic, or any language. Your conversations are stored securely in your account.':'اختر نموذج الذكاء الاصطناعي المناسب، واسأل بالعربية أو بأي لغة. محادثاتك محفوظة بأمان في حسابك.'}</p><div class="suggestions"><button class="suggestion" data-prompt="${en?'Create a practical marketing plan for a startup':'اكتب لي خطة تسويق عملية لمشروع ناشئ'}"><span class="sicon">${ICONS.sparkles}</span><span><b>${en?'Marketing plan':'خطة تسويق'}</b><small>${en?'A clear, actionable strategy':'استراتيجية واضحة قابلة للتنفيذ'}</small></span></button><button class="suggestion" data-prompt="${en?'Help me write and debug JavaScript code':'ساعدني في كتابة وتصحيح كود JavaScript'}"><span class="sicon">${ICONS.bot}</span><span><b>${en?'Coding help':'مساعدة برمجية'}</b><small>${en?'Code, explanations, and debugging':'كود، شرح، وتصحيح أخطاء'}</small></span></button><button class="suggestion" data-prompt="${en?'Summarize the following text into clear bullet points: ':'لخص لي النص التالي في نقاط واضحة: '}"><span class="sicon">${ICONS.chat}</span><span><b>${en?'Summarize text':'تلخيص النصوص'}</b><small>${en?'A fast, organized summary':'ملخص سريع ومنظم'}</small></span></button><button class="suggestion" data-prompt="${en?'Suggest digital business ideas for my market':'اقترح أفكار مشاريع رقمية مناسبة للسوق العربي'}"><span class="sicon">${ICONS.coin}</span><span><b>${en?'Business ideas':'أفكار مشاريع'}</b><small>${en?'Creative opportunities tailored to you':'فرص مبتكرة تناسب اهتماماتك'}</small></span></button></div></div>`}
 
+
+function enhanceCodeBlocks(root=$('messages')){
+  root.querySelectorAll('pre').forEach(pre=>{
+    if(pre.dataset.enhanced)return;
+    pre.dataset.enhanced='1';
+    const code=pre.querySelector('code');
+    const match=(code?.className||'').match(/language-([\w+-]+)/);
+    const language=match?.[1]||'code';
+    const head=document.createElement('div');
+    head.className='code-head';
+    const label=document.createElement('span');
+    label.textContent=language;
+    const button=document.createElement('button');
+    button.type='button';
+    button.className='code-copy';
+    button.textContent=lang==='ar'?'نسخ':'Copy';
+    button.onclick=async()=>{
+      try{
+        await navigator.clipboard.writeText(code?.textContent||pre.textContent||'');
+        button.textContent=lang==='ar'?'تم النسخ':'Copied';
+        setTimeout(()=>button.textContent=lang==='ar'?'نسخ':'Copy',1300);
+      }catch{toast(lang==='ar'?'تعذر نسخ الكود':'Could not copy code')}
+    };
+    head.append(label,button);
+    pre.prepend(head);
+  });
+}
+function bindMessageActions(){
+  $('messages').querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>copyMsg(Number(b.dataset.copy)));
+  $('messages').querySelectorAll('[data-redo]').forEach(b=>b.onclick=regenerate);
+  enhanceCodeBlocks();
+}
+function attachmentMarkup(m){
+  const list=m.attachments||[];
+  if(!list.length)return '';
+  return `<div class="message-attachments">${list.map(a=>`<span class="message-attachment">${a.type?.startsWith('image/')?(lang==='ar'?'صورة':'Image'):(lang==='ar'?'ملف':'File')}: ${esc(a.name||'')}</span>`).join('')}</div>`;
+}
+function imageMarkup(m,i){
+  const img=m.generatedImage;
+  if(!img?.thumbnail_data)return '';
+  return `<div class="generated-image-card"><img src="${esc(img.thumbnail_data)}" alt="${lang==='ar'?'صورة مولدة':'Generated image'}"><div class="generated-image-actions"><span>${esc(img.model_id||'AI image')}</span><button type="button" class="download-image" data-download-image="${i}">${lang==='ar'?'تنزيل الصورة':'Download image'}</button></div></div>`;
+}
 function render(){if(!history.length){$('messages').innerHTML=welcome();$('messages').querySelectorAll('[data-prompt]').forEach(b=>b.onclick=()=>{$('prompt').value=b.dataset.prompt;$('prompt').focus();autoSize()});return}$('messages').innerHTML=history.map((m,i)=>`<article class="msg ${m.role}" data-message-index="${i}"><span class="avatar">${m.role==='user'?ICONS.user:ICONS.bot}</span><div class="bubble">${attachmentMarkup(m)}<div class="bubble-content">${m.role==='assistant'?(m.content?(window.marked?marked.parse(m.content):esc(m.content).replace(/\n/g,'<br>')):(streaming&&i===history.length-1?'<div class="thinking-wrap"><span class="thinking-spinner"></span><span>يفكر</span><span class="thinking-dots"><i></i><i></i><i></i></span></div>':'')):esc(m.content||'').replace(/\n/g,'<br>')}</div>${imageMarkup(m,i)}<div class="msg-actions"><button class="mini-btn" data-copy="${i}">${ICONS.copy} نسخ</button>${m.role==='assistant'?`<button class="mini-btn" data-redo="1">${ICONS.redo} إعادة</button>`:''}</div></div></article>`).join('');bindMessageActions();$('messages').querySelectorAll('[data-download-image]').forEach(b=>b.onclick=()=>downloadGeneratedImage(Number(b.dataset.downloadImage)));requestAnimationFrame(()=>$('messages').scrollTop=$('messages').scrollHeight)}
 let streamFrame=0;
 function updateStreamingBubble(){if(streamFrame)return;streamFrame=requestAnimationFrame(()=>{streamFrame=0;const article=$('messages').querySelector(`[data-message-index="${history.length-1}"]`);const content=article?.querySelector('.bubble-content');if(!content)return;article.classList.add('streaming-msg');content.classList.add('streaming');content.textContent=history.at(-1)?.content||'';const box=$('messages');if(box.scrollHeight-box.scrollTop-box.clientHeight<220)box.scrollTop=box.scrollHeight})}
