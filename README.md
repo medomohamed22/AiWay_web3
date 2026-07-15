@@ -33,3 +33,9 @@
 - تصميم عربي متجاوب شبيه بتطبيقات الشات الحديثة.
 
 > ملاحظة: معرّفات النماذج تتغير أحيانًا في OpenRouter. راجع صفحة Models وعدّل `MODELS` في `api/_lib.js` قبل الإطلاق التجاري.
+
+## Vercel Hobby API function limit
+
+The deployable `/api` directory contains 11 JavaScript files, including the shared `_lib.js`, so it stays below a 12-file serverless-function limit.
+
+Older AppHub management endpoints that are not used by the AI chat are preserved under `/legacy-api`. Vercel does not deploy that directory as API functions. Move an endpoint back only if you also consolidate or remove another function first.
