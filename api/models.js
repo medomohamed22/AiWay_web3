@@ -48,11 +48,11 @@ async function getImageModels() {
     }
     const providers = [...IMAGE_PROVIDER_ORDER, ...[...groups.keys()].filter(x => !IMAGE_PROVIDER_ORDER.includes(x)).sort()];
     const selected = [];
-    for (const provider of providers) {
-      const best = (groups.get(provider) || [])
-        .sort((a, b) => Number(b.created || 0) - Number(a.created || 0) || String(a.name || a.id).localeCompare(String(b.name || b.id)))
-        .slice(0, 3);
-      for (const model of best) selected.push({
+    const selectedIds = new Set();
+    const addModel = (model, provider) => {
+      if (!model?.id || selectedIds.has(model.id)) return;
+      selectedIds.add(model.id);
+      selected.push({
         id: model.id,
         name: model.name || model.id,
         shortName: shortImageName(model),
@@ -63,6 +63,23 @@ async function getImageModels() {
         description: model.description || '',
         supportedAspectRatios: model.supported_parameters?.aspect_ratio || null
       });
+    };
+
+    for (const provider of providers) {
+      const providerModels = (groups.get(provider) || [])
+        .sort((a, b) => Number(b.created || 0) - Number(a.created || 0) || String(a.name || a.id).localeCompare(String(b.name || b.id)));
+
+      // Keep the newest three Seedream image models explicitly in the image list.
+      // This prevents them from being displaced by other ByteDance image models.
+      if (provider === 'bytedance-seed') {
+        providerModels.filter(model => /seedream/i.test(`${model.id} ${model.name || ''}`)).slice(0, 3)
+          .forEach(model => addModel(model, provider));
+        providerModels.filter(model => !/seedream/i.test(`${model.id} ${model.name || ''}`)).slice(0, 3)
+          .forEach(model => addModel(model, provider));
+        continue;
+      }
+
+      providerModels.slice(0, 3).forEach(model => addModel(model, provider));
     }
     imageCatalogCache = { at: Date.now(), models: selected };
     return selected;
