@@ -86,3 +86,7 @@ where lower(username) = lower('YOUR_PI_USERNAME');
 ## Vercel API limit
 
 The `api` folder contains exactly 12 serverless function files, including `_lib.js`. Unused legacy admin endpoints were removed.
+
+## Image-model selector
+
+The model selector now shows chat models first, followed by image-generation models grouped by provider. The image catalog is loaded dynamically from OpenRouter's Image Models API and keeps up to the three newest available models per provider. Selecting an image model reveals an aspect-ratio control beside the attachment button. The image endpoint validates the selected model against OpenRouter's live image catalog before generation.
