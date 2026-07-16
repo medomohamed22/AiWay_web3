@@ -78,7 +78,8 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers['x-forwarded-host'] || req.headers.host || 'localhost'}`,
-        'X-OpenRouter-Title': 'AiWay'
+        'X-OpenRouter-Title': 'AiWay',
+        'X-OpenRouter-Metadata': 'enabled'
       },
       body: JSON.stringify({
         model: modelId,
@@ -97,6 +98,10 @@ export default async function handler(req, res) {
 
     let answer = '';
     let usage = {};
+    let generationId = response.headers.get('x-generation-id') || '';
+    let routedModelId = '';
+    let routerMetadata = null;
+    let routeMismatch = null;
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -112,8 +117,14 @@ export default async function handler(req, res) {
         if (raw === '[DONE]') continue;
         try {
           const event = JSON.parse(raw);
+          if (event.id && !generationId) generationId = event.id;
+          if (event.model) routedModelId = event.model;
+          if (event.openrouter_metadata) routerMetadata = event.openrouter_metadata;
+          if (routedModelId && routedModelId !== modelId) {
+            routeMismatch = { requested: modelId, routed: routedModelId };
+          }
           const text = event.choices?.[0]?.delta?.content || '';
-          if (text) {
+          if (text && !routeMismatch) {
             answer += text;
             res.write(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`);
           }
@@ -121,6 +132,8 @@ export default async function handler(req, res) {
         } catch {}
       }
     }
+
+    if (routeMismatch) throw new Error(`MODEL_ROUTE_MISMATCH:${routeMismatch.requested}:${routeMismatch.routed}`);
 
     const charge = chargeTokens(model.pricing, usage, webSearch);
     if (answer) {
@@ -136,7 +149,14 @@ export default async function handler(req, res) {
         role: 'assistant',
         content: answer,
         model_id: modelId,
-        token_usage: { ...usage, ...charge }
+        token_usage: {
+          ...usage,
+          ...charge,
+          requestedModelId: modelId,
+          routedModelId: routedModelId || modelId,
+          generationId: generationId || null,
+          routerMetadata
+        }
       });
       await supabase.from('conversations')
         .update({ model_id: modelId, updated_at: new Date().toISOString() })
@@ -144,7 +164,14 @@ export default async function handler(req, res) {
         .eq('user_id', user.id);
     }
 
-    res.write(`data: ${JSON.stringify({ type: 'done', usage, chargedTokens: charge.chargedTokens })}\n\n`);
+    res.write(`data: ${JSON.stringify({
+      type: 'done',
+      usage,
+      chargedTokens: charge.chargedTokens,
+      requestedModelId: modelId,
+      routedModelId: routedModelId || modelId,
+      generationId: generationId || null
+    })}\n\n`);
     res.end();
   } catch (error) {
     if (res.headersSent) {

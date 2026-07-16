@@ -103,11 +103,13 @@ export function handleError(error, res, fallback = 'Server error') {
     INSUFFICIENT_TOKENS: [402, 'رصيد AiWay Tokens غير كافٍ'],
     MODEL_LOCKED: [403, 'هذا النموذج يُفتح بعد أول عملية شراء'],
     MODEL_UNAVAILABLE: [400, 'النموذج لم يعد متاحًا. حدّث قائمة النماذج واختر نموذجًا آخر'],
+    MODEL_ROUTE_MISMATCH: [502, 'OpenRouter أعاد نموذجًا مختلفًا عن النموذج المختار، لذلك تم إيقاف الطلب دون اعتماده'],
     TRIAL_WEB_LOCKED: [403, 'بحث الويب يُفتح بعد أول عملية شراء'],
     TRIAL_ENDED: [402, 'انتهت رسائلك التجريبية. اشترِ رصيدًا لفتح جميع النماذج'],
     FORBIDDEN: [403, 'Admin access required']
   };
   if (messages[error.message]) return json(res, ...messages[error.message]);
+  if (String(error.message || '').startsWith('MODEL_ROUTE_MISMATCH:')) return json(res, 502, { error: messages.MODEL_ROUTE_MISMATCH[1] });
   return json(res, 500, { error: fallback });
 }
 
