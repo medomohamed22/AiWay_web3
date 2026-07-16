@@ -90,3 +90,11 @@ The `api` folder contains exactly 12 serverless function files, including `_lib.
 ## Image-model selector
 
 The model selector now shows chat models first, followed by image-generation models grouped by provider. The image catalog is loaded dynamically from OpenRouter's Image Models API and keeps up to the three newest available models per provider. Selecting an image model reveals an aspect-ratio control beside the attachment button. The image endpoint validates the selected model against OpenRouter's live image catalog before generation.
+
+## نظام التسعير المحدث
+
+- كل `AiWay Token` يمثل `0.00001 USD` من تكلفة OpenRouter الفعلية.
+- يتم خصم التوكينات من `usage.cost` التي يعيدها OpenRouter، بدون ضرب التكلفة في 1.35 وقت الاستخدام.
+- نسبة 35% مضافة عند إنشاء الباقات: عدد التوكينات = سعر الباقة ÷ 1.35 ÷ 0.00001.
+- الباقات الحالية: 1 دولار = 74,074 توكين، 5 دولارات = 370,370 توكين، 10 دولارات = 740,740 توكين.
+- عند الترقية من النسخة القديمة، شغّل `sql/fixed-pricing-35-percent-migration.sql` مرة واحدة.
