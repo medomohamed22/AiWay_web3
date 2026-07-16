@@ -1,5 +1,68 @@
 import { allowMethods, chargeTokens, cleanText, db, errorDetails, getModel, getTrialModelId, handleError, requireUser } from './_lib.js';
 
+function extractDownloadableFiles(text) {
+  const files = [];
+  const re = /```file-([^\n`]+)\n([\s\S]*?)```/g;
+  let match;
+  while ((match = re.exec(String(text || ''))) && files.length < 8) {
+    files.push({ name: match[1].trim(), content: match[2].replace(/\n$/, '') });
+  }
+  return files;
+}
+
+function safeDownloadFilename(value) {
+  return String(value || 'aiway-file.txt')
+    .replace(/[\r\n\0]/g, '')
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .slice(0, 150) || 'aiway-file.txt';
+}
+
+function fileContentType(filename) {
+  const ext = String(filename || '').split('.').pop().toLowerCase();
+  const types = {
+    html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8', css: 'text/css; charset=utf-8',
+    js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8', json: 'application/json; charset=utf-8',
+    txt: 'text/plain; charset=utf-8', md: 'text/markdown; charset=utf-8', csv: 'text/csv; charset=utf-8',
+    xml: 'application/xml; charset=utf-8', svg: 'image/svg+xml; charset=utf-8', py: 'text/x-python; charset=utf-8',
+    java: 'text/x-java-source; charset=utf-8', c: 'text/x-c; charset=utf-8', cpp: 'text/x-c++; charset=utf-8',
+    ts: 'text/typescript; charset=utf-8', tsx: 'text/typescript; charset=utf-8', jsx: 'text/javascript; charset=utf-8',
+    sql: 'application/sql; charset=utf-8', yaml: 'application/yaml; charset=utf-8', yml: 'application/yaml; charset=utf-8'
+  };
+  return types[ext] || 'application/octet-stream';
+}
+
+async function downloadGeneratedFile(req, res) {
+  const token = String(req.query?.token || '');
+  const messageId = String(req.query?.messageId || '');
+  const fileIndex = Number(req.query?.fileIndex);
+  if (!messageId || !Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 7) throw new Error('UNAUTHORIZED');
+
+  const originalAuthorization = req.headers.authorization;
+  if (token) req.headers.authorization = `Bearer ${token}`;
+  const user = await requireUser(req);
+  req.headers.authorization = originalAuthorization;
+
+  const { data: message, error } = await db().from('messages')
+    .select('id,content,role')
+    .eq('id', messageId).eq('user_id', user.id).eq('role', 'assistant').single();
+  if (error || !message) throw new Error('FILE_NOT_FOUND');
+
+  const file = extractDownloadableFiles(message.content)[fileIndex];
+  if (!file) throw new Error('FILE_NOT_FOUND');
+  const filename = safeDownloadFilename(file.name);
+  const body = Buffer.from(file.content, 'utf8');
+  const asciiName = filename.replace(/[^a-zA-Z0-9._-]/g, '-') || 'aiway-file.txt';
+
+  res.status(200);
+  res.setHeader('Content-Type', fileContentType(filename));
+  res.setHeader('Content-Length', String(body.length));
+  res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  return res.end(body);
+}
+
+
 const detectLanguage = text => /[\u0600-\u06FF]/.test(String(text || '')) ? 'ar' : 'en';
 const formatSystemPrompt = (model, language) => `${language === 'ar' ? `أنت نموذج ${model.name || model.id} داخل منصة AiWay. أجب بالعربية الواضحة ما دام آخر طلب للمستخدم بالعربية، وإذا كتب بالإنجليزية فأجب بالإنجليزية.` : `You are ${model.name || model.id} inside the AiWay platform. Reply in English while the user's latest request is in English, and reply in Arabic when it is Arabic.`}
 Maintain full continuity with all earlier messages in this conversation. Never ignore relevant context already provided.
@@ -10,8 +73,12 @@ For a PowerPoint, return one fenced pptx-json block containing valid JSON shaped
 Use short headings only when useful, fenced code blocks with a language, and tables only for real comparisons.`;
 
 export default async function handler(req, res) {
-  if (!allowMethods(req, res, ['POST'])) return;
+  if (!allowMethods(req, res, ['GET', 'POST'])) return;
   try {
+    if (req.method === 'GET' && String(req.query?.action || '') === 'download-file') {
+      return await downloadGeneratedFile(req, res);
+    }
+    if (req.method !== 'POST') return res.status(400).json({ error: 'Invalid chat action' });
     const user = await requireUser(req);
     const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [], locale = 'ar' } = req.body || {};
     const uiLocale = String(locale).toLowerCase().startsWith('en') ? 'en' : 'ar';
@@ -144,7 +211,7 @@ export default async function handler(req, res) {
       });
       if (chargeError) throw new Error('INSUFFICIENT_TOKENS');
 
-      await supabase.from('messages').insert({
+      const { data: savedAssistant, error: saveAssistantError } = await supabase.from('messages').insert({
         conversation_id: conversationId,
         user_id: user.id,
         role: 'assistant',
@@ -158,7 +225,9 @@ export default async function handler(req, res) {
           generationId: generationId || null,
           routerMetadata
         }
-      });
+      }).select('id').single();
+      if (saveAssistantError) throw saveAssistantError;
+      usage.savedMessageId = savedAssistant?.id || null;
       await supabase.from('conversations')
         .update({ model_id: modelId, updated_at: new Date().toISOString() })
         .eq('id', conversationId)
@@ -171,7 +240,8 @@ export default async function handler(req, res) {
       chargedTokens: charge.chargedTokens,
       requestedModelId: modelId,
       routedModelId: routedModelId || modelId,
-      generationId: generationId || null
+      generationId: generationId || null,
+      messageId: usage.savedMessageId || null
     })}\n\n`);
     res.end();
   } catch (error) {
