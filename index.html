@@ -141,7 +141,7 @@ html,body{min-height:480px}
     <div class="model-menu" id="modelMenu" role="listbox" aria-label="Choose AI model"></div>
   </div>
   <div class="spacer"></div>
-  <div class="credits" title="Available balance"><span data-icon="coin"></span><span id="credits">0</span><span class="label">Token</span></div>
+  <div class="credits" title="Available balance"><span id="credits">0</span><span class="label">Token</span></div>
   <button class="icon-btn export" id="exportBtn" title="Export chat"><span data-icon="download"></span></button>
 </header>
 <section class="messages" id="messages"></section>
@@ -170,7 +170,7 @@ function renderModelSelect(selected=''){
   const chatModels=window.aiwayModels||[],imageModels=window.aiwayImageModels||[],all=[...chatModels,...imageModels];
   if(!all.length){select.innerHTML='<option value="">No models available</option>';updateModelTrigger();return}
   const preferred=selected&&all.some(m=>m.id===selected&&!m.locked)?selected:(chatModels.find(m=>m.trial&&!m.locked)||chatModels.find(m=>!m.locked)||all.find(m=>!m.locked)||all[0]).id;
-  const nativeOption=m=>`<option value="${esc(m.id)}" ${m.locked?'disabled':''}>${esc(m.shortName||shortModelName(m.name||m.id))}${m.locked?(lang==='ar'?' — مقفول':' — Locked'):''}</option>`;
+  const nativeOption=m=>`<option value="${esc(m.id)}" ${m.locked?'disabled':''}>${esc(shortModelName(m.shortName||m.name||m.id))}${m.locked?(lang==='ar'?' — مقفول':' — Locked'):''}</option>`;
   let html=`<optgroup label="AI Chat">${chatModels.map(nativeOption).join('')}</optgroup>`;
   if(imageModels.length)html+=`<optgroup label="AI Images">${imageModels.map(nativeOption).join('')}</optgroup>`;
   select.innerHTML=html;
@@ -186,11 +186,11 @@ function updateModelTrigger(){
   const m=selectedModel(),isImage=m?.type==='image';
   $('modelTriggerIcon').innerHTML=isImage?MODEL_ICONS.image:MODEL_ICONS.chat;
   $('modelTriggerIcon').classList.toggle('image',isImage);
-  $('modelTriggerName').textContent=m?(m.shortName||shortModelName(m.name||m.id)):(lang==='ar'?'اختر نموذجًا':'Choose a model');
+  $('modelTriggerName').textContent=m?shortModelName(m.shortName||m.name||m.id):(lang==='ar'?'اختر نموذجًا':'Choose a model');
   const typeLabel=$('modelTriggerType');if(typeLabel)typeLabel.textContent=isImage?'AI Images':'AI Chat';
 }
 function closeModelMenu(){const trigger=$('modelTrigger');if(trigger){trigger.classList.remove('open');trigger.setAttribute('aria-expanded','false')}}
-function shortModelName(name){return String(name||'').replace(/^(OpenAI|Google|Anthropic|DeepSeek|Meta|Mistral|xAI|Microsoft|Qwen)[:\s-]+/i,'').replace(/\s+\((?:Fast|Preview|Experimental)[^)]*\)$/i,'').replace(/\s+(Preview|Experimental)(?:\s+\d{2}-\d{2})?$/i,'').trim().slice(0,30)}
+function shortModelName(name){return String(name||'').replace(/^[^:]{1,40}:\s*/,'').replace(/^(OpenAI|Google|Anthropic|DeepSeek|Meta|Mistral|xAI|Microsoft|Qwen|ByteDance|ByteDance Seed|Black Forest Labs|Stability AI|Recraft|Ideogram)[·:\s-]+/i,'').replace(/\s+\((?:Fast|Preview|Experimental)[^)]*\)$/i,'').replace(/\s+(Preview|Experimental)(?:\s+\d{2}-\d{2})?$/i,'').trim().slice(0,34)}
 async function loadModels(){
   const selected=$('model').value;
   const data=await api('/api/models');
