@@ -111,6 +111,7 @@ html,body{min-height:480px}
 .model-trigger-copy{display:flex;align-items:center;min-width:0}
 .model-trigger-copy b{width:100%}
 
+.model-execution{margin-top:8px;font-size:11px;opacity:.65;direction:ltr;text-align:left}.model-execution b{font-weight:700}
 </style>
 </head>
 <body>
@@ -282,13 +283,19 @@ function attachmentMarkup(m){
   if(!list.length)return '';
   return `<div class="message-attachments">${list.map(a=>`<span class="message-attachment">${a.type?.startsWith('image/')?(lang==='ar'?'صورة':'Image'):(lang==='ar'?'ملف':'File')}: ${esc(a.name||'')}</span>`).join('')}</div>`;
 }
+function modelExecutionMarkup(m){
+  if(m.role!=='assistant')return '';
+  const routed=m.routedModelId||m.token_usage?.routedModelId||m.model_id;
+  if(!routed)return '';
+  return `<div class="model-execution">${lang==='ar'?'النموذج المنفذ':'Executed model'}: <b>${esc(routed)}</b></div>`;
+}
 function imageMarkup(m,i){
   const img=m.generatedImage;
   if(!img?.thumbnail_data)return '';
   return `<div class="generated-image-card"><img src="${esc(img.thumbnail_data)}" alt="${lang==='ar'?'صورة مولدة':'Generated image'}"><div class="generated-image-actions"><span>${esc(img.model_id||'AI image')}</span><button type="button" class="download-image" data-download-image="${i}">${lang==='ar'?'تنزيل الصورة':'Download image'}</button></div></div>`;
 }
 function renderMarkdown(text){const raw=window.marked?marked.parse(text||''):esc(text||'').replace(/\n/g,'<br>');return window.DOMPurify?DOMPurify.sanitize(raw,{ADD_ATTR:['target','rel']}):raw}
-function render(){if(!history.length){$('messages').innerHTML=welcome();$('messages').querySelectorAll('[data-prompt]').forEach(b=>b.onclick=()=>{$('prompt').value=b.dataset.prompt;$('prompt').focus();autoSize()});return}$('messages').innerHTML=history.map((m,i)=>`<article class="msg ${m.role}" data-message-index="${i}"><span class="avatar">${m.role==='user'?ICONS.user:ICONS.bot}</span><div class="bubble">${attachmentMarkup(m)}<div class="bubble-content">${m.role==='assistant'?(m.content?renderMarkdown(m.content):(streaming&&i===history.length-1?`<div class="thinking-wrap"><span class="thinking-spinner"></span><span>${I18N[lang].thinking}</span><span class="thinking-dots"><i></i><i></i><i></i></span></div>`:'')):esc(m.content||'').replace(/\n/g,'<br>')}</div>${imageMarkup(m,i)}<div class="msg-actions"><button class="mini-btn" data-copy="${i}">${ICONS.copy} ${I18N[lang].copy}</button>${m.role==='assistant'?`<button class="mini-btn" data-redo="1">${ICONS.redo} ${I18N[lang].redo}</button>`:''}</div></div></article>`).join('');bindMessageActions();$('messages').querySelectorAll('[data-download-image]').forEach(b=>b.onclick=()=>downloadGeneratedImage(Number(b.dataset.downloadImage)));requestAnimationFrame(()=>$('messages').scrollTop=$('messages').scrollHeight)}
+function render(){if(!history.length){$('messages').innerHTML=welcome();$('messages').querySelectorAll('[data-prompt]').forEach(b=>b.onclick=()=>{$('prompt').value=b.dataset.prompt;$('prompt').focus();autoSize()});return}$('messages').innerHTML=history.map((m,i)=>`<article class="msg ${m.role}" data-message-index="${i}"><span class="avatar">${m.role==='user'?ICONS.user:ICONS.bot}</span><div class="bubble">${attachmentMarkup(m)}<div class="bubble-content">${m.role==='assistant'?(m.content?renderMarkdown(m.content):(streaming&&i===history.length-1?`<div class="thinking-wrap"><span class="thinking-spinner"></span><span>${I18N[lang].thinking}</span><span class="thinking-dots"><i></i><i></i><i></i></span></div>`:'')):esc(m.content||'').replace(/\n/g,'<br>')}</div>${imageMarkup(m,i)}${modelExecutionMarkup(m)}<div class="msg-actions"><button class="mini-btn" data-copy="${i}">${ICONS.copy} ${I18N[lang].copy}</button>${m.role==='assistant'?`<button class="mini-btn" data-redo="1">${ICONS.redo} ${I18N[lang].redo}</button>`:''}</div></div></article>`).join('');bindMessageActions();$('messages').querySelectorAll('[data-download-image]').forEach(b=>b.onclick=()=>downloadGeneratedImage(Number(b.dataset.downloadImage)));requestAnimationFrame(()=>$('messages').scrollTop=$('messages').scrollHeight)}
 let streamFrame=0;
 function updateStreamingBubble(){/* Keep the polished thinking state visible until the complete Markdown response is ready. */}
 
@@ -339,7 +346,7 @@ async function sendMessage(){
     if(!r.ok){const d=await r.json().catch(()=>({}));throw Error(d.error||(lang==='ar'?'فشل إرسال الرسالة':'Failed to send message'))}
     if(!r.body)throw Error(lang==='ar'?'المتصفح لا يدعم بث الرد':'This browser does not support response streaming');
     const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='';
-    while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const parts=buffer.split('\n\n');buffer=parts.pop()||'';for(const part of parts){const line=part.split('\n').find(x=>x.startsWith('data:'));if(!line)continue;const d=JSON.parse(line.slice(5));if(d.type==='delta'){history[history.length-1].content+=d.text;updateStreamingBubble()}if(d.type==='error')throw Error(d.error)}}
+    while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const parts=buffer.split('\n\n');buffer=parts.pop()||'';for(const part of parts){const line=part.split('\n').find(x=>x.startsWith('data:'));if(!line)continue;const d=JSON.parse(line.slice(5));if(d.type==='delta'){history[history.length-1].content+=d.text;updateStreamingBubble()}if(d.type==='done'){history[history.length-1].routedModelId=d.routedModelId;history[history.length-1].requestedModelId=d.requestedModelId;history[history.length-1].generationId=d.generationId}if(d.type==='error')throw Error(d.error)}}
     render();await Promise.all([refreshMe(),loadChats()]);
   }catch(e){
     if(e.name==='AbortError'){if(!history.at(-1)?.content)history.pop();toast(lang==='ar'?'تم إيقاف الإجابة':'Response stopped')}
