@@ -75,9 +75,30 @@ export default async function handler(req,res){
       return json(res,200,{conversation:data});
     }
 
-    const {error}=await s.from('conversations').delete().eq('id',id).eq('user_id',user.id);
+    // Delete any full-resolution files owned by this conversation before removing
+    // the database rows. This prevents orphaned objects in Supabase Storage.
+    const {data:imageRows,error:imageLookupError}=await s.from('generated_images')
+      .select('storage_path').eq('conversation_id',id).eq('user_id',user.id)
+      .not('storage_path','is',null);
+    if(imageLookupError)throw imageLookupError;
+
+    const storagePaths=[...new Set((imageRows||[])
+      .map(row=>String(row.storage_path||'').trim()).filter(Boolean))];
+
+    // Supabase Storage accepts a list of paths. Chunking keeps large
+    // conversations within request-size limits. If removal fails, keep the
+    // conversation intact so the user can retry instead of leaving stale rows.
+    for(let offset=0;offset<storagePaths.length;offset+=100){
+      const batch=storagePaths.slice(offset,offset+100);
+      const {error:storageDeleteError}=await s.storage.from('generated-images').remove(batch);
+      if(storageDeleteError)throw storageDeleteError;
+    }
+
+    const {data:deletedRows,error}=await s.from('conversations').delete()
+      .eq('id',id).eq('user_id',user.id).select('id');
     if(error)throw error;
-    return json(res,200,{deleted:true});
+    if(!deletedRows?.length)return json(res,404,{error:'Conversation not found'});
+    return json(res,200,{deleted:true,deletedImages:storagePaths.length});
   }catch(e){
     return handleError(e,res,'Conversation operation failed');
   }
