@@ -190,7 +190,24 @@ function updateModelTrigger(){
   const typeLabel=$('modelTriggerType');if(typeLabel)typeLabel.textContent=isImage?'AI Images':'AI Chat';
 }
 function closeModelMenu(){const trigger=$('modelTrigger');if(trigger){trigger.classList.remove('open');trigger.setAttribute('aria-expanded','false')}}
-function shortModelName(name){return String(name||'').replace(/^[^:]{1,40}:\s*/,'').replace(/^(OpenAI|Google|Anthropic|DeepSeek|Meta|Mistral|xAI|Microsoft|Qwen|ByteDance|ByteDance Seed|Black Forest Labs|Stability AI|Recraft|Ideogram)[·:\s-]+/i,'').replace(/\s+\((?:Fast|Preview|Experimental)[^)]*\)$/i,'').replace(/\s+(Preview|Experimental)(?:\s+\d{2}-\d{2})?$/i,'').trim().slice(0,34)}
+function shortModelName(name){
+  let value=String(name||'').trim();
+  const original=value;
+  value=value
+    .replace(/^[^:]{1,40}:\s*/,'')
+    .replace(/^(OpenAI|Google|Anthropic|Meta|xAI|Microsoft|ByteDance(?: Seed)?|Black Forest Labs|Stability AI|Recraft|Ideogram)[·:\s-]+/i,'')
+    .replace(/\s+\((?:Fast|Preview|Experimental)[^)]*\)$/i,'')
+    .replace(/\s+(Preview|Experimental)(?:\s+\d{2}-\d{2})?$/i,'')
+    .trim();
+
+  // Some providers return only the version after their prefix, for example
+  // "DeepSeek: V3". Keep the model family so the visible name is meaningful.
+  if (/^deepseek\s*[:·-]/i.test(original) && /^(?:v|r)\d/i.test(value)) value=`DeepSeek ${value}`;
+  if (/^qwen\s*[:·-]/i.test(original) && /^\d/i.test(value)) value=`Qwen ${value}`;
+  if (/^mistral\s*[:·-]/i.test(original) && /^(?:large|medium|small|nemo|codestral|ministral)/i.test(value) && !/^mistral/i.test(value)) value=`Mistral ${value}`;
+
+  return value.slice(0,40);
+}
 async function loadModels(){
   const selected=$('model').value;
   const data=await api('/api/models');
