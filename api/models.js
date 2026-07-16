@@ -24,6 +24,22 @@ function imageProvider(id = '') {
   return prefix || 'other';
 }
 
+function enumValues(descriptor) {
+  if (Array.isArray(descriptor)) return descriptor.map(String);
+  if (descriptor?.type === 'enum' && Array.isArray(descriptor.values)) return descriptor.values.map(String);
+  return [];
+}
+
+function serializableCapabilities(supported = {}) {
+  const result = {};
+  for (const [key, descriptor] of Object.entries(supported || {})) {
+    if (Array.isArray(descriptor)) result[key] = { type: 'enum', values: descriptor.map(String) };
+    else if (descriptor && typeof descriptor === 'object') result[key] = descriptor;
+    else if (descriptor === true) result[key] = { type: 'boolean' };
+  }
+  return result;
+}
+
 function shortImageName(model) {
   return String(model.name || model.id || '')
     .replace(/^(OpenAI|Google|ByteDance|Black Forest Labs|Stability AI|Recraft|Ideogram)[:\\s-]+/i, '')
@@ -61,7 +77,9 @@ async function getImageModels() {
         providerLabel: IMAGE_PROVIDER_LABELS[provider] || provider,
         created: Number(model.created || 0),
         description: model.description || '',
-        supportedAspectRatios: model.supported_parameters?.aspect_ratio || null
+        supportedParameters: serializableCapabilities(model.supported_parameters),
+        supportedAspectRatios: enumValues(model.supported_parameters?.aspect_ratio),
+        supportedResolutions: enumValues(model.supported_parameters?.resolution)
       });
     };
 

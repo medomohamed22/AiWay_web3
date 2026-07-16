@@ -115,17 +115,47 @@ export default async function handler(req, res) {
     if (req.method === 'GET') return json(res, 400, { error: 'Invalid image action' });
     if (action === 'persist') return await persistImage(req, res);
     const user = await requireUser(req);
-    const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1' } = req.body || {};
-    const allowedRatios = new Set(['1:1','16:9','9:16','4:3','3:4','3:2','2:3']);
-    const safeAspectRatio = allowedRatios.has(aspectRatio) ? aspectRatio : '1:1';
+    const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1', resolution = '' } = req.body || {};
+    const requestedAspectRatio = cleanText(aspectRatio, 20);
     if (!conversationId || !cleanText(prompt, 4000)) return json(res, 400, { error: 'اكتب وصف الصورة' });
     const supabase = db();
     const { data: profile, error: pe } = await supabase.from('users').select('ai_tokens,has_purchased').eq('id', user.id).single();
     if (pe) throw pe;
     if (!profile?.has_purchased) throw new Error('MODEL_LOCKED');
     const model = await getImageModel(cleanText(modelId, 160));
-    const body = { model: model.id, prompt: cleanText(prompt, 4000), n: 1, resolution: '512', aspect_ratio: safeAspectRatio, quality: 'low', output_format: 'jpeg', output_compression: 65 };
-    if (typeof referenceImage === 'string' && referenceImage.startsWith('data:image/')) body.input_references = [{ type: 'image_url', image_url: { url: referenceImage } }];
+    const supported = model.supported_parameters || {};
+    const enumValues = descriptor => Array.isArray(descriptor)
+      ? descriptor.map(String)
+      : descriptor?.type === 'enum' && Array.isArray(descriptor.values)
+        ? descriptor.values.map(String)
+        : [];
+    const supports = key => Object.prototype.hasOwnProperty.call(supported, key);
+    const chooseEnum = (key, requested, preferred = []) => {
+      const values = enumValues(supported[key]);
+      if (!values.length) return null;
+      const exact = values.find(value => value.toLowerCase() === String(requested || '').toLowerCase());
+      if (exact) return exact;
+      for (const wanted of preferred) {
+        const match = values.find(value => value.toLowerCase() === wanted.toLowerCase());
+        if (match) return match;
+      }
+      return values[0];
+    };
+
+    // Only send parameters advertised by the selected image model. OpenRouter's
+    // image providers reject unknown or unsupported fields instead of ignoring them.
+    const body = { model: model.id, prompt: cleanText(prompt, 4000) };
+    const selectedResolution = chooseEnum('resolution', resolution, ['1K', '1024x1024']);
+    const selectedAspectRatio = chooseEnum('aspect_ratio', requestedAspectRatio, ['1:1']);
+    if (selectedResolution) body.resolution = selectedResolution;
+    if (selectedAspectRatio) body.aspect_ratio = selectedAspectRatio;
+    if (supports('n')) body.n = 1;
+
+    if (typeof referenceImage === 'string' && referenceImage.startsWith('data:image/')) {
+      const acceptsImageInput = model.architecture?.input_modalities?.includes('image');
+      if (!acceptsImageInput) return json(res, 400, { error: 'هذا النموذج لا يدعم صورة مرجعية. اختر نموذجًا يدعم إدخال الصور.' });
+      body.input_references = [{ type: 'image_url', image_url: { url: referenceImage } }];
+    }
     const r = await fetch('https://openrouter.ai/api/v1/images', { method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json', 'X-OpenRouter-Title': 'AiWay' }, body: JSON.stringify(body) });
     const payload = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(payload?.error?.message || 'IMAGE_GENERATION_FAILED');
@@ -142,7 +172,7 @@ export default async function handler(req, res) {
     if (ue) throw ue;
     const { data: message, error: me } = await supabase.from('messages').insert({ conversation_id: conversationId, user_id: user.id, role: 'assistant', content: 'تم إنشاء الصورة المطلوبة.', model_id: model.id, token_usage: { ...payload.usage, ...charge, type: 'image' } }).select('id').single();
     if (me) throw me;
-    const { data: image, error: ie } = await supabase.from('generated_images').insert({ message_id: message.id, conversation_id: conversationId, user_id: user.id, model_id: model.id, prompt: cleanText(prompt, 4000), media_type: mediaType, thumbnail_data: thumbnailData, storage_status: 'pending', width: safeAspectRatio === '9:16' ? 512 : safeAspectRatio === '3:4' ? 768 : safeAspectRatio === '2:3' ? 768 : safeAspectRatio === '16:9' ? 1024 : safeAspectRatio === '4:3' ? 1024 : safeAspectRatio === '3:2' ? 1024 : 512, height: safeAspectRatio === '16:9' ? 576 : safeAspectRatio === '4:3' ? 768 : safeAspectRatio === '3:2' ? 683 : safeAspectRatio === '9:16' ? 910 : safeAspectRatio === '3:4' ? 1024 : safeAspectRatio === '2:3' ? 1152 : 512, token_usage: { ...payload.usage, ...charge, aspectRatio: safeAspectRatio } }).select('*').single();
+    const { data: image, error: ie } = await supabase.from('generated_images').insert({ message_id: message.id, conversation_id: conversationId, user_id: user.id, model_id: model.id, prompt: cleanText(prompt, 4000), media_type: mediaType, thumbnail_data: thumbnailData, storage_status: 'pending', width: Number(item.width) || null, height: Number(item.height) || null, token_usage: { ...payload.usage, ...charge, aspectRatio: selectedAspectRatio || null, resolution: selectedResolution || null } }).select('*').single();
     if (ie) throw ie;
     await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId).eq('user_id', user.id);
     return json(res, 200, { image, chargedTokens });
