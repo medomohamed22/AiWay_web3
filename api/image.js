@@ -1,15 +1,17 @@
 import { allowMethods, chargeTokens, cleanText, db, handleError, json, MARKUP, requireUser, TOKEN_USD } from './_lib.js';
 
 let imageModelCache = { at: 0, model: null };
-async function getImageModel() {
-  if (imageModelCache.model && Date.now() - imageModelCache.at < 3600000) return imageModelCache.model;
+async function getImageModel(requestedModelId = '') {
+  if (!requestedModelId && imageModelCache.model && Date.now() - imageModelCache.at < 3600000) return imageModelCache.model;
   const r = await fetch('https://openrouter.ai/api/v1/images/models', { headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` } });
   if (!r.ok) throw new Error('IMAGE_MODEL_UNAVAILABLE');
   const p = await r.json();
   const models = (p.data || []).filter(m => m.architecture?.output_modalities?.includes('image'));
-  const preferred = models.find(m => /gpt-image/i.test(m.id)) || models.find(m => /gemini.*image/i.test(m.id)) || models[0];
+  const requested = requestedModelId ? models.find(m => m.id === requestedModelId) : null;
+  if (requestedModelId && !requested) throw new Error('IMAGE_MODEL_UNAVAILABLE');
+  const preferred = requested || models.find(m => /gpt-image/i.test(m.id)) || models.find(m => /gemini.*image/i.test(m.id)) || models[0];
   if (!preferred) throw new Error('IMAGE_MODEL_UNAVAILABLE');
-  imageModelCache = { at: Date.now(), model: preferred };
+  if (!requestedModelId) imageModelCache = { at: Date.now(), model: preferred };
   return preferred;
 }
 
@@ -17,14 +19,16 @@ export default async function handler(req, res) {
   if (!allowMethods(req, res, ['POST'])) return;
   try {
     const user = await requireUser(req);
-    const { conversationId, prompt, referenceImage } = req.body || {};
+    const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1' } = req.body || {};
+    const allowedRatios = new Set(['1:1','16:9','9:16','4:3','3:4','3:2','2:3']);
+    const safeAspectRatio = allowedRatios.has(aspectRatio) ? aspectRatio : '1:1';
     if (!conversationId || !cleanText(prompt, 4000)) return json(res, 400, { error: 'اكتب وصف الصورة' });
     const supabase = db();
     const { data: profile, error: pe } = await supabase.from('users').select('ai_tokens,has_purchased').eq('id', user.id).single();
     if (pe) throw pe;
     if (!profile?.has_purchased) throw new Error('MODEL_LOCKED');
-    const model = await getImageModel();
-    const body = { model: model.id, prompt: cleanText(prompt, 4000), n: 1, resolution: '512', aspect_ratio: '1:1', quality: 'low', output_format: 'jpeg', output_compression: 65 };
+    const model = await getImageModel(cleanText(modelId, 160));
+    const body = { model: model.id, prompt: cleanText(prompt, 4000), n: 1, resolution: '512', aspect_ratio: safeAspectRatio, quality: 'low', output_format: 'jpeg', output_compression: 65 };
     if (typeof referenceImage === 'string' && referenceImage.startsWith('data:image/')) body.input_references = [{ type: 'image_url', image_url: { url: referenceImage } }];
     const r = await fetch('https://openrouter.ai/api/v1/images', { method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json', 'X-OpenRouter-Title': 'AiWay' }, body: JSON.stringify(body) });
     const payload = await r.json().catch(() => ({}));
@@ -41,7 +45,7 @@ export default async function handler(req, res) {
     if (ue) throw ue;
     const { data: message, error: me } = await supabase.from('messages').insert({ conversation_id: conversationId, user_id: user.id, role: 'assistant', content: 'تم إنشاء الصورة المطلوبة.', model_id: model.id, token_usage: { ...payload.usage, chargedTokens, type: 'image' } }).select('id').single();
     if (me) throw me;
-    const { data: image, error: ie } = await supabase.from('generated_images').insert({ message_id: message.id, conversation_id: conversationId, user_id: user.id, model_id: model.id, prompt: cleanText(prompt, 4000), media_type: mediaType, thumbnail_data: thumbnailData, width: 512, height: 512, token_usage: { ...payload.usage, chargedTokens } }).select('*').single();
+    const { data: image, error: ie } = await supabase.from('generated_images').insert({ message_id: message.id, conversation_id: conversationId, user_id: user.id, model_id: model.id, prompt: cleanText(prompt, 4000), media_type: mediaType, thumbnail_data: thumbnailData, width: safeAspectRatio === '9:16' ? 512 : safeAspectRatio === '3:4' ? 768 : safeAspectRatio === '2:3' ? 768 : safeAspectRatio === '16:9' ? 1024 : safeAspectRatio === '4:3' ? 1024 : safeAspectRatio === '3:2' ? 1024 : 512, height: safeAspectRatio === '16:9' ? 576 : safeAspectRatio === '4:3' ? 768 : safeAspectRatio === '3:2' ? 683 : safeAspectRatio === '9:16' ? 910 : safeAspectRatio === '3:4' ? 1024 : safeAspectRatio === '2:3' ? 1152 : 512, token_usage: { ...payload.usage, chargedTokens, aspectRatio: safeAspectRatio } }).select('*').single();
     if (ie) throw ie;
     await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId).eq('user_id', user.id);
     return json(res, 200, { image, chargedTokens });
