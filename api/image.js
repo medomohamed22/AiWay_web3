@@ -9,8 +9,8 @@ function safeFilename(value, extension) {
 }
 
 async function downloadImage(req, res) {
-  const token = String(req.body?.token || '');
-  const imageId = String(req.body?.imageId || '');
+  const token = String(req.body?.token || req.query?.token || '');
+  const imageId = String(req.body?.imageId || req.query?.imageId || '');
   if (!imageId) throw new Error('UNAUTHORIZED');
 
   const originalAuthorization = req.headers.authorization;
@@ -108,10 +108,12 @@ async function getImageModel(requestedModelId = '') {
 }
 
 export default async function handler(req, res) {
-  if (!allowMethods(req, res, ['POST'])) return;
+  if (!allowMethods(req, res, ['GET', 'POST'])) return;
   try {
-    if (req.body?.action === 'download') return await downloadImage(req, res);
-    if (req.body?.action === 'persist') return await persistImage(req, res);
+    const action = String(req.body?.action || req.query?.action || '');
+    if (action === 'download') return await downloadImage(req, res);
+    if (req.method === 'GET') return json(res, 400, { error: 'Invalid image action' });
+    if (action === 'persist') return await persistImage(req, res);
     const user = await requireUser(req);
     const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1' } = req.body || {};
     const allowedRatios = new Set(['1:1','16:9','9:16','4:3','3:4','3:2','2:3']);
@@ -149,6 +151,7 @@ export default async function handler(req, res) {
       res.status(404).setHeader('Content-Type', 'text/plain; charset=utf-8');
       return res.end('Image not found');
     }
-    return handleError(e, res, req.body?.action === 'download' ? 'تعذر تنزيل الصورة' : 'تعذر إنشاء الصورة');
+    const action = String(req.body?.action || req.query?.action || '');
+    return handleError(e, res, action === 'download' ? 'تعذر تنزيل الصورة' : 'تعذر إنشاء الصورة');
   }
 }
