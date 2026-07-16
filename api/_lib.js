@@ -96,21 +96,50 @@ export function cleanText(value, max = 500) {
   return String(value ?? '').trim().slice(0, max);
 }
 
-export function handleError(error, res, fallback = 'Server error') {
-  console.error(error);
+export function errorDetails(error, locale = 'ar') {
+  const language = String(locale).toLowerCase().startsWith('en') ? 'en' : 'ar';
   const messages = {
-    UNAUTHORIZED: [401, 'Sign in with Pi first'],
-    INSUFFICIENT_TOKENS: [402, 'رصيدك لا يكفي لتنفيذ هذا الطلب. اشحن رصيدًا إضافيًا ثم حاول مرة أخرى.'],
-    OPENROUTER_CREDITS_EXHAUSTED: [503, 'خدمة إنشاء الصور غير متاحة مؤقتًا بسبب نفاد رصيد مزود الخدمة. تواصل مع إدارة AiWay.'],
-    MODEL_LOCKED: [403, 'هذا النموذج يُفتح بعد أول عملية شراء'],
-    MODEL_UNAVAILABLE: [400, 'النموذج لم يعد متاحًا. حدّث قائمة النماذج واختر نموذجًا آخر'],
-    MODEL_ROUTE_MISMATCH: [502, 'OpenRouter أعاد نموذجًا مختلفًا عن النموذج المختار، لذلك تم إيقاف الطلب دون اعتماده'],
-    TRIAL_WEB_LOCKED: [403, 'بحث الويب يُفتح بعد أول عملية شراء'],
-    TRIAL_ENDED: [402, 'انتهت رسائلك التجريبية. اشترِ رصيدًا لفتح جميع النماذج'],
-    FORBIDDEN: [403, 'Admin access required']
+    UNAUTHORIZED: [401, { ar: 'سجّل الدخول بحساب Pi أولًا.', en: 'Sign in with Pi first.' }],
+    INSUFFICIENT_TOKENS: [402, {
+      ar: 'رصيدك غير كافٍ لإتمام هذا الطلب. اشحن رصيدًا إضافيًا ثم حاول مرة أخرى.',
+      en: 'Your balance is insufficient to complete this request. Add more balance and try again.'
+    }],
+    OPENROUTER_CREDITS_EXHAUSTED: [503, {
+      ar: 'خدمة إنشاء الصور غير متاحة مؤقتًا بسبب نفاد رصيد مزود الخدمة. تواصل مع إدارة AiWay.',
+      en: 'Image generation is temporarily unavailable because the provider balance is exhausted. Please contact AiWay support.'
+    }],
+    MODEL_LOCKED: [403, {
+      ar: 'هذا النموذج متاح بعد أول عملية شراء. التجربة المجانية تعمل على Gemma 4 26B A4B فقط.',
+      en: 'This model unlocks after your first purchase. The free trial is limited to Gemma 4 26B A4B.'
+    }],
+    MODEL_UNAVAILABLE: [400, {
+      ar: 'النموذج لم يعد متاحًا. حدّث قائمة النماذج واختر نموذجًا آخر.',
+      en: 'This model is no longer available. Refresh the model list and choose another model.'
+    }],
+    MODEL_ROUTE_MISMATCH: [502, {
+      ar: 'أعاد OpenRouter نموذجًا مختلفًا عن النموذج المختار، لذلك تم إيقاف الطلب دون اعتماده.',
+      en: 'OpenRouter returned a different model than the one selected, so the request was stopped without being charged.'
+    }],
+    TRIAL_WEB_LOCKED: [403, {
+      ar: 'بحث الويب متاح بعد أول عملية شراء.',
+      en: 'Web search unlocks after your first purchase.'
+    }],
+    TRIAL_ENDED: [402, {
+      ar: 'انتهت رسائلك التجريبية. اشترِ رصيدًا لفتح جميع النماذج ومتابعة الاستخدام.',
+      en: 'Your free trial messages have ended. Purchase balance to unlock all models and continue.'
+    }],
+    FORBIDDEN: [403, { ar: 'صلاحية المدير مطلوبة.', en: 'Admin access is required.' }]
   };
-  if (messages[error.message]) return json(res, ...messages[error.message]);
-  if (String(error.message || '').startsWith('MODEL_ROUTE_MISMATCH:')) return json(res, 502, { error: messages.MODEL_ROUTE_MISMATCH[1] });
+  const key = String(error?.message || error || '');
+  const normalized = key.startsWith('MODEL_ROUTE_MISMATCH:') ? 'MODEL_ROUTE_MISMATCH' : key;
+  const entry = messages[normalized];
+  return entry ? { status: entry[0], message: entry[1][language], code: normalized } : null;
+}
+
+export function handleError(error, res, fallback = 'Server error', locale = 'ar') {
+  console.error(error);
+  const details = errorDetails(error, locale);
+  if (details) return json(res, details.status, { error: details.message, code: details.code });
   return json(res, 500, { error: fallback });
 }
 
@@ -120,7 +149,7 @@ export const TOKEN_USD = 0.00001;
 export const MARKUP = 1.35;
 export const TRIAL_MESSAGE_LIMIT = 5;
 export const TRIAL_TOKENS = 1500;
-export const TRIAL_MODEL_FALLBACK = 'deepseek/deepseek-chat-v3-0324';
+export const TRIAL_MODEL_FALLBACK = 'google/gemma-4-26b-a4b-it:free';
 const tokensForUsd = usd => Math.floor(Number(usd) / MARKUP / TOKEN_USD);
 export const PACKAGES = {
   starter: { usd: 1, tokens: tokensForUsd(1) },
@@ -142,7 +171,7 @@ const FALLBACK_MODELS = [
   { id: 'google/gemini-2.0-flash-001', name: 'Gemini 2.0 Flash', created: 1738540800, family: 'gemini', tag: 'Google', pricing: { prompt: 0.0000001, completion: 0.0000004 } },
   { id: 'google/gemini-2.5-pro-preview', name: 'Gemini 2.5 Pro', created: 1743379200, family: 'gemini', tag: 'Google', pricing: { prompt: 0.00000125, completion: 0.00001 } },
   { id: 'google/gemini-2.5-flash-preview', name: 'Gemini 2.5 Flash', created: 1743379201, family: 'gemini', tag: 'Google', pricing: { prompt: 0.0000003, completion: 0.0000025 } },
-  { id: TRIAL_MODEL_FALLBACK, name: 'DeepSeek V3', created: 1742774400, family: 'deepseek', tag: 'DeepSeek', pricing: { prompt: 0.00000027, completion: 0.0000011 } },
+  { id: TRIAL_MODEL_FALLBACK, name: 'Gemma 4 26B A4B (free)', created: 1780000000, family: 'gemini', tag: 'Google', pricing: { prompt: 0, completion: 0 } },
   { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', created: 1738281600, family: 'deepseek', tag: 'DeepSeek', pricing: { prompt: 0.00000055, completion: 0.00000219 } },
   { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', created: 1733011200, family: 'deepseek', tag: 'DeepSeek', pricing: { prompt: 0.00000027, completion: 0.0000011 } },
   { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet', created: 1740355200, family: 'claude', tag: 'Anthropic', pricing: { prompt: 0.000003, completion: 0.000015 } },
@@ -196,6 +225,14 @@ export async function getAvailableModels() {
       selected.push(...familyModels);
     }
     if (selected.length < 12) throw new Error('Incomplete OpenRouter catalog');
+    const trialFromPayload = (payload.data || []).find(model => model.id === TRIAL_MODEL_FALLBACK);
+    const trialModel = trialFromPayload
+      ? normalizeModel(trialFromPayload, FAMILY_CONFIG.find(family => family.key === 'gemini'))
+      : FALLBACK_MODELS.find(model => model.id === TRIAL_MODEL_FALLBACK);
+    if (trialModel && !selected.some(model => model.id === TRIAL_MODEL_FALLBACK)) {
+      const googleIndex = selected.findIndex(model => model.family === 'gemini');
+      selected.splice(googleIndex >= 0 ? googleIndex : 0, 0, trialModel);
+    }
     catalogCache = { at: Date.now(), models: selected };
     return selected;
   } catch (error) {
@@ -205,11 +242,8 @@ export async function getAvailableModels() {
 }
 
 export async function getTrialModelId() {
-  const models = await getAvailableModels();
-  const deepSeekV3 = models
-    .filter(model => model.family === 'deepseek' && /(?:deepseek[\s_-]*)?v3/i.test(`${model.id} ${model.name}`))
-    .sort((a, b) => b.created - a.created)[0];
-  return deepSeekV3?.id || models.find(model => model.id === TRIAL_MODEL_FALLBACK)?.id || TRIAL_MODEL_FALLBACK;
+  // Keep the free trial pinned to one exact OpenRouter model.
+  return TRIAL_MODEL_FALLBACK;
 }
 
 export async function getModel(modelId) {

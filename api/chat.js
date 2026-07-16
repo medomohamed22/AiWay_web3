@@ -1,4 +1,4 @@
-import { allowMethods, chargeTokens, cleanText, db, getModel, getTrialModelId, handleError, requireUser } from './_lib.js';
+import { allowMethods, chargeTokens, cleanText, db, errorDetails, getModel, getTrialModelId, handleError, requireUser } from './_lib.js';
 
 const detectLanguage = text => /[\u0600-\u06FF]/.test(String(text || '')) ? 'ar' : 'en';
 const formatSystemPrompt = (model, language) => `${language === 'ar' ? `أنت نموذج ${model.name || model.id} داخل منصة AiWay. أجب بالعربية الواضحة ما دام آخر طلب للمستخدم بالعربية، وإذا كتب بالإنجليزية فأجب بالإنجليزية.` : `You are ${model.name || model.id} inside the AiWay platform. Reply in English while the user's latest request is in English, and reply in Arabic when it is Arabic.`}
@@ -13,7 +13,8 @@ export default async function handler(req, res) {
   if (!allowMethods(req, res, ['POST'])) return;
   try {
     const user = await requireUser(req);
-    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [] } = req.body || {};
+    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [], locale = 'ar' } = req.body || {};
+    const uiLocale = String(locale).toLowerCase().startsWith('en') ? 'en' : 'ar';
     if (!conversationId || !modelId || !Array.isArray(messages)) return res.status(400).json({ error: 'Invalid chat request' });
 
     const [model, trialModelId] = await Promise.all([getModel(modelId), getTrialModelId()]);
@@ -175,9 +176,10 @@ export default async function handler(req, res) {
     res.end();
   } catch (error) {
     if (res.headersSent) {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`);
+      const details = errorDetails(error, uiLocale);
+      res.write(`data: ${JSON.stringify({ type: 'error', error: details?.message || (uiLocale === 'ar' ? 'تعذر إكمال الطلب.' : 'Could not complete the request.'), code: details?.code || null })}\n\n`);
       return res.end();
     }
-    return handleError(error, res, 'Chat request failed');
+    return handleError(error, res, uiLocale === 'ar' ? 'تعذر إرسال رسالة المحادثة.' : 'Chat request failed.', uiLocale);
   }
 }

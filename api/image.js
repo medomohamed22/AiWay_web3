@@ -146,9 +146,10 @@ export default async function handler(req, res) {
     if (req.method === 'GET') return json(res, 400, { error: 'Invalid image action' });
     if (action === 'persist') return await persistImage(req, res);
     const user = await requireUser(req);
-    const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1', resolution = '' } = req.body || {};
+    const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1', resolution = '', locale = 'ar' } = req.body || {};
+    const uiLocale = String(locale).toLowerCase().startsWith('en') ? 'en' : 'ar';
     const requestedAspectRatio = cleanText(aspectRatio, 20);
-    if (!conversationId || !cleanText(prompt, 4000)) return json(res, 400, { error: 'اكتب وصف الصورة' });
+    if (!conversationId || !cleanText(prompt, 4000)) return json(res, 400, { error: uiLocale === 'ar' ? 'اكتب وصف الصورة.' : 'Enter an image description.' });
     const supabase = db();
     const { data: profile, error: pe } = await supabase.from('users').select('ai_tokens,has_purchased').eq('id', user.id).single();
     if (pe) throw pe;
@@ -214,7 +215,9 @@ export default async function handler(req, res) {
         // Vercel print a full stack trace even though this is an expected provider-state error.
         console.warn('OpenRouter image credits unavailable:', providerMessage || `HTTP ${r.status}`);
         return json(res, 503, {
-          error: 'رصيد خدمة إنشاء الصور غير كافٍ حاليًا. اشحن رصيدًا إضافيًا ثم حاول مرة أخرى.',
+          error: uiLocale === 'ar'
+            ? 'رصيد خدمة إنشاء الصور غير كافٍ حاليًا. اشحن رصيدًا إضافيًا ثم حاول مرة أخرى.'
+            : 'The image provider balance is currently insufficient. Add more provider balance and try again.',
           code: 'OPENROUTER_CREDITS_EXHAUSTED'
         });
       }
@@ -244,6 +247,10 @@ export default async function handler(req, res) {
       return res.end('Image not found');
     }
     const action = String(req.body?.action || req.query?.action || '');
-    return handleError(e, res, action === 'download' ? 'تعذر تنزيل الصورة' : 'تعذر إنشاء الصورة');
+    const errorLocale = String(req.body?.locale || req.query?.locale || 'ar').toLowerCase().startsWith('en') ? 'en' : 'ar';
+    const fallback = action === 'download'
+      ? (errorLocale === 'ar' ? 'تعذر تنزيل الصورة.' : 'Could not download the image.')
+      : (errorLocale === 'ar' ? 'تعذر إنشاء الصورة.' : 'Could not generate the image.');
+    return handleError(e, res, fallback, errorLocale);
   }
 }
