@@ -1,9 +1,10 @@
-import { allowMethods, db, json } from './_lib.js';
+import { allowMethods, db, json, localize, requestLocale } from './_lib.js';
 
 const APP_FIELDS = 'id,name,slug,category,network,short_description,website_url,icon_url,screenshot_urls,rating,ratings_count,views_count,get_clicks_count,is_verified,is_featured,featured_until,developer_name,created_at';
 
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['GET'])) return;
+  const locale = requestLocale(req);
   try {
     const supabase = db();
     const now = new Date().toISOString();
@@ -42,6 +43,6 @@ export default async function handler(req, res) {
     return json(res, 200, { apps, total: count ?? apps.length, nextCursor: apps.length === limit ? apps[apps.length - 1]?.created_at || null : null });
   } catch (error) {
     console.error(error);
-    return json(res, 500, { error: 'Unable to load apps' });
+    return json(res, 500, { error: localize(locale, 'تعذر تحميل التطبيقات حاليًا.', 'Could not load the apps right now.'), code: 'SERVER_ERROR' });
   }
 }

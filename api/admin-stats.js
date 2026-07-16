@@ -1,4 +1,4 @@
-import { allowMethods, db, json, requireUser, requireAdmin, MARKUP, TOKEN_USD, getPiUsd } from './_lib.js';
+import { allowMethods, db, handleError, json, localize, requestLocale, requireUser, requireAdmin, MARKUP, TOKEN_USD, getPiUsd } from './_lib.js';
 
 const number = value => {
   const n = Number(value || 0);
@@ -25,6 +25,7 @@ function providerCostFromUsage(usage) {
 
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['GET'])) return;
+  const locale = requestLocale(req);
   try {
     const user = await requireUser(req);
     requireAdmin(user);
@@ -75,8 +76,6 @@ export default async function handler(req, res) {
       generatedAt: new Date().toISOString()
     });
   } catch (error) {
-    console.error(error);
-    const status = error.message === 'UNAUTHORIZED' ? 401 : error.message === 'FORBIDDEN' ? 403 : 500;
-    return json(res, status, { error: status === 500 ? 'تعذر تحميل الإحصاءات' : 'انتهت جلسة المشرف' });
+    return handleError(error, res, localize(locale, 'تعذر تحميل الإحصاءات حاليًا.', 'Could not load the statistics right now.'), locale);
   }
 }

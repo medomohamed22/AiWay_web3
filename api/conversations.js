@@ -1,7 +1,8 @@
-import {allowMethods,cleanText,db,handleError,json,requireUser} from './_lib.js';
+import {allowMethods,appError,cleanText,db,handleError,json,localize,requestLocale,requireUser} from './_lib.js';
 
 export default async function handler(req,res){
   if(!allowMethods(req,res,['GET','POST','PATCH','DELETE']))return;
+  const locale=requestLocale(req);
   try{
     const user=await requireUser(req),s=db();
 
@@ -10,12 +11,12 @@ export default async function handler(req,res){
       if(id){
         const {data:conversation,error:conversationError}=await s.from('conversations')
           .select('*').eq('id',id).eq('user_id',user.id).single();
-        if(conversationError)throw conversationError;
+        if(conversationError)throw appError('DATABASE_ERROR',{},conversationError);
 
         const {data:messages,error:messagesError}=await s.from('messages')
           .select('*').eq('conversation_id',id).eq('user_id',user.id)
           .order('created_at',{ascending:true});
-        if(messagesError)throw messagesError;
+        if(messagesError)throw appError('DATABASE_ERROR',{},messagesError);
 
         const messageIds=(messages||[]).map(message=>message.id);
         let images=[];
@@ -23,7 +24,7 @@ export default async function handler(req,res){
           const {data,error}=await s.from('generated_images').select('*')
             .eq('conversation_id',id).eq('user_id',user.id)
             .in('message_id',messageIds).order('created_at',{ascending:true});
-          if(error)throw error;
+          if(error)throw appError('DATABASE_ERROR',{},error);
           images=data||[];
         }
 
@@ -49,7 +50,7 @@ export default async function handler(req,res){
       const {data,error}=await s.from('conversations')
         .select('id,title,model_id,updated_at,created_at')
         .eq('user_id',user.id).order('updated_at',{ascending:false});
-      if(error)throw error;
+      if(error)throw appError('DATABASE_ERROR',{},error);
       return json(res,200,{conversations:data});
     }
 
@@ -59,19 +60,19 @@ export default async function handler(req,res){
         title:cleanText(req.body?.title||'New chat',80),
         model_id:cleanText(req.body?.modelId,120)
       }).select('*').single();
-      if(error)throw error;
+      if(error)throw appError('DATABASE_ERROR',{},error);
       return json(res,201,{conversation:data});
     }
 
     const id=String(req.body?.id||req.query?.id||'');
-    if(!id)return json(res,400,{error:'Conversation id required'});
+    if(!id)return json(res,400,{error:localize(locale,'معرّف المحادثة مطلوب.','Conversation id is required.'),code:'INVALID_REQUEST'});
     if(req.method==='PATCH'){
       const patch={};
       if(req.body?.title!==undefined)patch.title=cleanText(req.body.title,80);
       if(req.body?.modelId!==undefined)patch.model_id=cleanText(req.body.modelId,120);
       const {data,error}=await s.from('conversations').update(patch)
         .eq('id',id).eq('user_id',user.id).select('*').single();
-      if(error)throw error;
+      if(error)throw appError('DATABASE_ERROR',{},error);
       return json(res,200,{conversation:data});
     }
 
@@ -80,7 +81,7 @@ export default async function handler(req,res){
     const {data:imageRows,error:imageLookupError}=await s.from('generated_images')
       .select('storage_path').eq('conversation_id',id).eq('user_id',user.id)
       .not('storage_path','is',null);
-    if(imageLookupError)throw imageLookupError;
+    if(imageLookupError)throw appError('DATABASE_ERROR',{},imageLookupError);
 
     const storagePaths=[...new Set((imageRows||[])
       .map(row=>String(row.storage_path||'').trim()).filter(Boolean))];
@@ -91,15 +92,15 @@ export default async function handler(req,res){
     for(let offset=0;offset<storagePaths.length;offset+=100){
       const batch=storagePaths.slice(offset,offset+100);
       const {error:storageDeleteError}=await s.storage.from('generated-images').remove(batch);
-      if(storageDeleteError)throw storageDeleteError;
+      if(storageDeleteError)throw appError('DATABASE_ERROR',{},storageDeleteError);
     }
 
     const {data:deletedRows,error}=await s.from('conversations').delete()
       .eq('id',id).eq('user_id',user.id).select('id');
-    if(error)throw error;
-    if(!deletedRows?.length)return json(res,404,{error:'Conversation not found'});
+    if(error)throw appError('DATABASE_ERROR',{},error);
+    if(!deletedRows?.length)return json(res,404,{error:localize(locale,'المحادثة غير موجودة أو حُذفت بالفعل.','The conversation was not found or was already deleted.'),code:'FILE_NOT_FOUND'});
     return json(res,200,{deleted:true,deletedImages:storagePaths.length});
   }catch(e){
-    return handleError(e,res,'Conversation operation failed');
+    return handleError(e,res,localize(locale,'تعذر تنفيذ العملية على المحادثة. حاول مرة أخرى.','Could not complete the conversation operation. Try again.'),locale);
   }
 }

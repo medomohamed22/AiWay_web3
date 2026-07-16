@@ -1,10 +1,14 @@
-import { allowMethods, db, json, signAppToken } from './_lib.js';
+import { allowMethods, appError, db, handleError, json, localize, piApiError, requestLocale, signAppToken } from './_lib.js';
 
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['POST'])) return;
+  const locale = requestLocale(req);
   try {
     const accessToken = String(req.body?.accessToken || '').trim();
-    if (!accessToken) return json(res, 400, { error: 'رمز دخول Pi غير موجود' });
+    if (!accessToken) return json(res, 400, {
+      error: localize(locale, 'رمز تسجيل الدخول من Pi غير موجود. أعد فتح الموقع داخل Pi Browser وحاول مرة أخرى.', 'The Pi sign-in token is missing. Reopen the site in Pi Browser and try again.'),
+      code: 'PI_LOGIN_FAILED'
+    });
 
     const base = String(process.env.PI_API_BASE_URL || 'https://api.minepi.com').replace(/\/$/, '');
     const controller = new AbortController();
@@ -22,12 +26,15 @@ export default async function handler(req, res) {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       console.error('Pi /v2/me failed', response.status, payload);
-      return json(res, 401, { error: 'جلسة Pi غير صالحة. افتح الموقع داخل Pi Browser وسجّل الدخول من جديد.' });
+      throw piApiError(response.status, payload, { operation: 'login' });
     }
 
     const piUid = String(payload.uid || req.body?.user?.uid || '').trim();
     const username = String(payload.username || req.body?.user?.username || '').trim();
-    if (!piUid || !username) return json(res, 401, { error: 'لم يرسل Pi بيانات المستخدم كاملة' });
+    if (!piUid || !username) return json(res, 401, {
+      error: localize(locale, 'لم ترسل Pi بيانات الحساب كاملة. سجّل الخروج من Pi Browser ثم سجّل الدخول مرة أخرى.', 'Pi did not return complete account details. Sign out of Pi Browser, then sign in again.'),
+      code: 'PI_LOGIN_FAILED'
+    });
 
     const supabase = db();
     const { data: user, error } = await supabase
@@ -35,13 +42,17 @@ export default async function handler(req, res) {
       .upsert({ pi_uid: piUid, username, last_login_at: new Date().toISOString() }, { onConflict: 'pi_uid' })
       .select('id, pi_uid, username, role, ai_tokens, trial_messages_remaining, has_purchased, created_at')
       .single();
-    if (error) throw error;
+    if (error || !user) throw appError('DATABASE_ERROR', {}, error);
 
     const token = await signAppToken(user);
     return json(res, 200, { token, user });
   } catch (error) {
-    console.error('Pi login error:', error);
-    if (error?.name === 'AbortError') return json(res, 504, { error: 'انتهت مهلة الاتصال بخوادم Pi. حاول مرة أخرى.' });
-    return json(res, 500, { error: 'تعذر إكمال تسجيل الدخول. راجع إعدادات Pi وSupabase.' });
+    if (error?.name === 'AbortError') return handleError(appError('REQUEST_TIMEOUT', {}, error), res, localize(locale, 'انتهت مهلة تسجيل الدخول. حاول مرة أخرى.', 'Sign-in timed out. Try again.'), locale);
+    return handleError(
+      error,
+      res,
+      localize(locale, 'تعذر إكمال تسجيل الدخول حاليًا. حاول مرة أخرى بعد قليل.', 'Could not complete sign-in right now. Try again shortly.'),
+      locale
+    );
   }
 }

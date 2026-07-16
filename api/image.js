@@ -1,4 +1,4 @@
-import { allowMethods, chargeTokens, cleanText, db, handleError, json, requireUser } from './_lib.js';
+import { allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, fetchWithTimeout, handleError, isLowBalance, json, localize, openRouterError, requestLocale, requireUser } from './_lib.js';
 
 function safeFilename(value, extension) {
   const base = String(value || `AiWay-${Date.now()}`)
@@ -57,14 +57,14 @@ async function persistImage(req, res) {
   const user = await requireUser(req);
   const imageId = String(req.body?.imageId || '');
   const imageData = String(req.body?.imageData || '');
-  if (!imageId || !imageData) return json(res, 400, { error: 'Image data required' });
+  if (!imageId || !imageData) throw appError('INVALID_IMAGE_REQUEST');
 
   const match = imageData.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
-  if (!match) return json(res, 400, { error: 'Invalid image data' });
+  if (!match) throw appError('INVALID_IMAGE_REQUEST');
   const mediaType = String(match[1] || 'image/jpeg').toLowerCase();
   const extension = mediaType.includes('png') ? 'png' : mediaType.includes('webp') ? 'webp' : 'jpg';
   const file = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
-  if (!file.length || file.length > 25 * 1024 * 1024) return json(res, 413, { error: 'Image is too large' });
+  if (!file.length || file.length > 25 * 1024 * 1024) throw appError('ATTACHMENT_TOO_LARGE');
 
   const supabase = db();
   const { data: image, error } = await supabase.from('generated_images')
@@ -126,34 +126,47 @@ function estimateImageCharge(model, resolution = '', hasReferenceImage = false) 
 let imageModelCache = { at: 0, model: null };
 async function getImageModel(requestedModelId = '') {
   if (!requestedModelId && imageModelCache.model && Date.now() - imageModelCache.at < 3600000) return imageModelCache.model;
-  const r = await fetch('https://openrouter.ai/api/v1/images/models', { headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` } });
-  if (!r.ok) throw new Error('IMAGE_MODEL_UNAVAILABLE');
-  const p = await r.json();
-  const models = (p.data || []).filter(m => m.architecture?.output_modalities?.includes('image'));
-  const requested = requestedModelId ? models.find(m => m.id === requestedModelId) : null;
-  if (requestedModelId && !requested) throw new Error('IMAGE_MODEL_UNAVAILABLE');
-  const preferred = requested || models.find(m => /gpt-image/i.test(m.id)) || models.find(m => /gemini.*image/i.test(m.id)) || models[0];
-  if (!preferred) throw new Error('IMAGE_MODEL_UNAVAILABLE');
+  const response = await fetchWithTimeout('https://openrouter.ai/api/v1/images/models', {
+    headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` }
+  }, 20000);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw openRouterError(response.status, payload, { kind: 'image' });
+  const models = (payload.data || []).filter(model => model.architecture?.output_modalities?.includes('image'));
+  const requested = requestedModelId ? models.find(model => model.id === requestedModelId) : null;
+  if (requestedModelId && !requested) throw appError('IMAGE_MODEL_UNAVAILABLE');
+  const preferred = requested || models.find(model => /gpt-image/i.test(model.id)) || models.find(model => /gemini.*image/i.test(model.id)) || models[0];
+  if (!preferred) throw appError('IMAGE_MODEL_UNAVAILABLE');
   if (!requestedModelId) imageModelCache = { at: Date.now(), model: preferred };
   return preferred;
 }
 
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['GET', 'POST'])) return;
+  const uiLocale = requestLocale(req);
   try {
     const action = String(req.body?.action || req.query?.action || '');
     if (action === 'download') return await downloadImage(req, res);
-    if (req.method === 'GET') return json(res, 400, { error: 'Invalid image action' });
+    if (req.method === 'GET') throw appError('INVALID_IMAGE_REQUEST');
     if (action === 'persist') return await persistImage(req, res);
+
     const user = await requireUser(req);
-    const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1', resolution = '', locale = 'ar' } = req.body || {};
-    const uiLocale = String(locale).toLowerCase().startsWith('en') ? 'en' : 'ar';
+    const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1', resolution = '' } = req.body || {};
+    const cleanPrompt = cleanText(prompt, 4000);
     const requestedAspectRatio = cleanText(aspectRatio, 20);
-    if (!conversationId || !cleanText(prompt, 4000)) return json(res, 400, { error: uiLocale === 'ar' ? 'اكتب وصف الصورة.' : 'Enter an image description.' });
+    if (!conversationId || !cleanPrompt) throw appError('INVALID_IMAGE_REQUEST');
+
     const supabase = db();
-    const { data: profile, error: pe } = await supabase.from('users').select('ai_tokens,has_purchased').eq('id', user.id).single();
-    if (pe) throw pe;
-    if (!profile?.has_purchased) throw new Error('MODEL_LOCKED');
+    const { data: profile, error: profileError } = await supabase
+      .from('users')
+      .select('ai_tokens,has_purchased')
+      .eq('id', user.id)
+      .single();
+    if (profileError || !profile) throw appError('DATABASE_ERROR', {}, profileError);
+    if (!profile.has_purchased) throw appError('MODEL_LOCKED');
+
+    const availableTokens = Math.max(0, Number(profile.ai_tokens || 0));
+    if (availableTokens < 1) throw appError('INSUFFICIENT_TOKENS', { availableTokens });
+    if (!process.env.OPENROUTER_API_KEY) throw appError('MISSING_CONFIGURATION');
     const model = await getImageModel(cleanText(modelId, 160));
     const supported = model.supported_parameters || {};
     const enumValues = descriptor => Array.isArray(descriptor)
@@ -174,9 +187,7 @@ export default async function handler(req, res) {
       return values[0];
     };
 
-    // Only send parameters advertised by the selected image model. OpenRouter's
-    // image providers reject unknown or unsupported fields instead of ignoring them.
-    const body = { model: model.id, prompt: cleanText(prompt, 4000) };
+    const body = { model: model.id, prompt: cleanPrompt };
     const selectedResolution = chooseEnum('resolution', resolution, ['1K', '1024x1024']);
     const selectedAspectRatio = chooseEnum('aspect_ratio', requestedAspectRatio, ['1:1']);
     if (selectedResolution) body.resolution = selectedResolution;
@@ -184,73 +195,140 @@ export default async function handler(req, res) {
     if (supports('n')) body.n = 1;
 
     const hasReferenceImage = typeof referenceImage === 'string' && referenceImage.startsWith('data:image/');
+    if (referenceImage && !hasReferenceImage) throw appError('INVALID_ATTACHMENT');
+    if (hasReferenceImage && referenceImage.length > 4_300_000) throw appError('ATTACHMENT_TOO_LARGE');
     if (hasReferenceImage) {
       const acceptsImageInput = model.architecture?.input_modalities?.includes('image');
-      if (!acceptsImageInput) return json(res, 400, { error: 'هذا النموذج لا يدعم صورة مرجعية. اختر نموذجًا يدعم إدخال الصور.' });
+      if (!acceptsImageInput) throw appError('REFERENCE_IMAGE_UNSUPPORTED');
       body.input_references = [{ type: 'image_url', image_url: { url: referenceImage } }];
     }
 
-    // Reject expensive requests before contacting OpenRouter. This prevents the
-    // provider cost from being incurred when the user's AiWay balance cannot
-    // cover the selected model/resolution.
     const estimatedCharge = estimateImageCharge(model, selectedResolution, hasReferenceImage);
-    const availableTokens = Math.max(0, Number(profile?.ai_tokens || 0));
     if (availableTokens < estimatedCharge.chargedTokens) {
-      return json(res, 402, {
-        error: 'رصيدك لا يكفي لتنفيذ هذا الطلب. اشحن رصيدًا إضافيًا ثم حاول مرة أخرى.',
-        code: 'INSUFFICIENT_TOKENS',
+      throw appError('INSUFFICIENT_TOKENS_FOR_REQUEST', {
         availableTokens,
-        estimatedTokens: estimatedCharge.chargedTokens
+        requiredTokens: estimatedCharge.chargedTokens,
+        shortfall: estimatedCharge.chargedTokens - availableTokens
       });
     }
 
-    const r = await fetch('https://openrouter.ai/api/v1/images', { method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json', 'X-OpenRouter-Title': 'AiWay' }, body: JSON.stringify(body) });
-    const payload = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const providerMessage = String(payload?.error?.message || '');
-      // OpenRouter account credit is an infrastructure issue, not an AiWay user-token issue.
-      // Keep the provider details in server logs, but return a safe, actionable app message.
-      if (r.status === 402 || /insufficient credits|add more.*credits/i.test(providerMessage)) {
-        // Return a controlled JSON response instead of throwing. Throwing here makes
-        // Vercel print a full stack trace even though this is an expected provider-state error.
-        console.warn('OpenRouter image credits unavailable:', providerMessage || `HTTP ${r.status}`);
-        return json(res, 503, {
-          error: uiLocale === 'ar'
-            ? 'رصيد خدمة إنشاء الصور غير كافٍ حاليًا. اشحن رصيدًا إضافيًا ثم حاول مرة أخرى.'
-            : 'The image provider balance is currently insufficient. Add more provider balance and try again.',
-          code: 'OPENROUTER_CREDITS_EXHAUSTED'
-        });
-      }
-      console.error('OpenRouter image generation failed:', r.status, providerMessage || payload);
-      throw new Error(providerMessage || 'IMAGE_GENERATION_FAILED');
-    }
+    const response = await fetchWithTimeout('https://openrouter.ai/api/v1/images', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'X-OpenRouter-Title': 'AiWay',
+        'X-OpenRouter-Metadata': 'enabled'
+      },
+      body: JSON.stringify(body)
+    }, 90000);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw openRouterError(response.status, payload, { kind: 'image' });
+
     const item = payload.data?.[0];
-    if (!item?.b64_json) throw new Error('IMAGE_GENERATION_FAILED');
+    if (!item?.b64_json) throw appError('EMPTY_RESPONSE');
     const mediaType = item.media_type || 'image/jpeg';
     const thumbnailData = `data:${mediaType};base64,${item.b64_json}`;
-    const imageUsage = payload.usage?.cost ? payload.usage : { ...(payload.usage || {}), cost: 0.04 };
+    const imageUsage = payload.usage?.cost ? payload.usage : { ...(payload.usage || {}), cost: estimatedCharge.providerUsd };
     const charge = chargeTokens({}, imageUsage, false);
-    const { providerUsd, chargedTokens } = charge;
-    const { error: ce } = await supabase.rpc('consume_ai_tokens', { p_user_id: user.id, p_amount: chargedTokens });
-    if (ce) throw new Error('INSUFFICIENT_TOKENS');
-    const { error: ue } = await supabase.from('messages').insert({ conversation_id: conversationId, user_id: user.id, role: 'user', content: cleanText(prompt, 4000), token_usage: { image_request: true, reference_image: Boolean(referenceImage) } });
-    if (ue) throw ue;
-    const { data: message, error: me } = await supabase.from('messages').insert({ conversation_id: conversationId, user_id: user.id, role: 'assistant', content: 'تم إنشاء الصورة المطلوبة.', model_id: model.id, token_usage: { ...payload.usage, ...charge, type: 'image' } }).select('id').single();
-    if (me) throw me;
-    const { data: image, error: ie } = await supabase.from('generated_images').insert({ message_id: message.id, conversation_id: conversationId, user_id: user.id, model_id: model.id, prompt: cleanText(prompt, 4000), media_type: mediaType, thumbnail_data: thumbnailData, storage_status: 'pending', width: Number(item.width) || null, height: Number(item.height) || null, token_usage: { ...payload.usage, ...charge, aspectRatio: selectedAspectRatio || null, resolution: selectedResolution || null } }).select('*').single();
-    if (ie) throw ie;
-    await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId).eq('user_id', user.id);
-    return json(res, 200, { image, chargedTokens });
-  } catch (e) {
-    if (e.message === 'IMAGE_NOT_FOUND') {
-      res.status(404).setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.end('Image not found');
+    if (charge.chargedTokens > availableTokens) {
+      throw appError('INSUFFICIENT_TOKENS_FOR_REQUEST', {
+        availableTokens,
+        requiredTokens: charge.chargedTokens,
+        shortfall: charge.chargedTokens - availableTokens
+      });
     }
+
+    let savedUser = null;
+    let savedAssistant = null;
+    let savedImage = null;
+    try {
+      const userInsert = await supabase.from('messages').insert({
+        conversation_id: conversationId,
+        user_id: user.id,
+        role: 'user',
+        content: cleanPrompt,
+        token_usage: { image_request: true, reference_image: hasReferenceImage }
+      }).select('id').single();
+      if (userInsert.error || !userInsert.data) throw appError('DATABASE_ERROR', {}, userInsert.error);
+      savedUser = userInsert.data;
+
+      const assistantInsert = await supabase.from('messages').insert({
+        conversation_id: conversationId,
+        user_id: user.id,
+        role: 'assistant',
+        content: localize(uiLocale, 'تم إنشاء الصورة المطلوبة.', 'The requested image has been generated.'),
+        model_id: model.id,
+        token_usage: { ...payload.usage, ...charge, type: 'image' }
+      }).select('id').single();
+      if (assistantInsert.error || !assistantInsert.data) throw appError('DATABASE_ERROR', {}, assistantInsert.error);
+      savedAssistant = assistantInsert.data;
+
+      const imageInsert = await supabase.from('generated_images').insert({
+        message_id: savedAssistant.id,
+        conversation_id: conversationId,
+        user_id: user.id,
+        model_id: model.id,
+        prompt: cleanPrompt,
+        media_type: mediaType,
+        thumbnail_data: thumbnailData,
+        storage_status: 'pending',
+        width: Number(item.width) || null,
+        height: Number(item.height) || null,
+        token_usage: {
+          ...payload.usage,
+          ...charge,
+          aspectRatio: selectedAspectRatio || null,
+          resolution: selectedResolution || null
+        }
+      }).select('*').single();
+      if (imageInsert.error || !imageInsert.data) throw appError('DATABASE_ERROR', {}, imageInsert.error);
+      savedImage = imageInsert.data;
+    } catch (saveError) {
+      if (savedImage?.id) await supabase.from('generated_images').delete().eq('id', savedImage.id).eq('user_id', user.id);
+      if (savedAssistant?.id) await supabase.from('messages').delete().eq('id', savedAssistant.id).eq('user_id', user.id);
+      if (savedUser?.id) await supabase.from('messages').delete().eq('id', savedUser.id).eq('user_id', user.id);
+      throw saveError;
+    }
+
+    const { error: chargeError } = await supabase.rpc('consume_ai_tokens', {
+      p_user_id: user.id,
+      p_amount: charge.chargedTokens
+    });
+    if (chargeError) {
+      await supabase.from('generated_images').delete().eq('id', savedImage.id).eq('user_id', user.id);
+      await supabase.from('messages').delete().in('id', [savedAssistant.id, savedUser.id]).eq('user_id', user.id);
+      throw await classifyTokenChargeFailure(supabase, user.id, charge.chargedTokens, chargeError);
+    }
+
+    const { data: updatedProfile } = await supabase.from('users').select('ai_tokens').eq('id', user.id).single();
+    const remainingTokens = Math.max(0, Number(updatedProfile?.ai_tokens ?? availableTokens - charge.chargedTokens));
+    const conversationUpdate = await supabase.from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', conversationId)
+      .eq('user_id', user.id);
+    if (conversationUpdate.error) console.warn('Conversation timestamp update failed:', conversationUpdate.error.message);
+
+    return json(res, 200, {
+      image: savedImage,
+      chargedTokens: charge.chargedTokens,
+      remainingTokens,
+      lowBalance: isLowBalance(remainingTokens, charge.chargedTokens)
+    });
+  } catch (error) {
     const action = String(req.body?.action || req.query?.action || '');
-    const errorLocale = String(req.body?.locale || req.query?.locale || 'ar').toLowerCase().startsWith('en') ? 'en' : 'ar';
-    const fallback = action === 'download'
-      ? (errorLocale === 'ar' ? 'تعذر تنزيل الصورة.' : 'Could not download the image.')
-      : (errorLocale === 'ar' ? 'تعذر إنشاء الصورة.' : 'Could not generate the image.');
-    return handleError(e, res, fallback, errorLocale);
+    if (action === 'download' && error?.message === 'IMAGE_NOT_FOUND') {
+      const details = errorDetails(error, uiLocale);
+      res.status(404).setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.end(details?.message || localize(uiLocale, 'الصورة غير موجودة.', 'Image not found.'));
+    }
+    return handleError(
+      error,
+      res,
+      action === 'download'
+        ? localize(uiLocale, 'تعذر تنزيل الصورة. حاول مرة أخرى.', 'Could not download the image. Try again.')
+        : localize(uiLocale, 'حدث عطل مؤقت أثناء إنشاء الصورة. حاول مرة أخرى؛ لم يتم خصم رصيدك.', 'A temporary error occurred while generating the image. Try again; your balance was not charged.'),
+      uiLocale
+    );
   }
 }

@@ -1,4 +1,4 @@
-import { allowMethods, db, getAvailableModels, getTrialModelId, json, MARKUP, PACKAGES, packageQuote, requireUser, TOKEN_USD } from './_lib.js';
+import { allowMethods, db, fetchWithTimeout, getAvailableModels, getTrialModelId, json, localize, MARKUP, PACKAGES, packageQuote, requestLocale, requireUser, TOKEN_USD } from './_lib.js';
 
 const IMAGE_PROVIDER_ORDER = ['openai', 'google', 'bytedance-seed', 'black-forest-labs', 'stability-ai', 'recraft', 'ideogram'];
 const IMAGE_PROVIDER_LABELS = {
@@ -50,9 +50,9 @@ function shortImageName(model) {
 async function getImageModels() {
   if (imageCatalogCache.models.length && Date.now() - imageCatalogCache.at < 60 * 60 * 1000) return imageCatalogCache.models;
   try {
-    const r = await fetch('https://openrouter.ai/api/v1/images/models', {
+    const r = await fetchWithTimeout('https://openrouter.ai/api/v1/images/models', {
       headers: process.env.OPENROUTER_API_KEY ? { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` } : {}
-    });
+    }, 15000);
     if (!r.ok) throw new Error(`OpenRouter image models ${r.status}`);
     const payload = await r.json();
     const groups = new Map();
@@ -109,6 +109,7 @@ async function getImageModels() {
 
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['GET'])) return;
+  const locale = requestLocale(req);
   try {
     let unlocked = false;
     try {
@@ -153,6 +154,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error(error);
-    return json(res, 500, { error: 'Unable to load pricing' });
+    return json(res, 500, { error: localize(locale, 'تعذر تحميل النماذج والأسعار حاليًا. حاول تحديث الصفحة.', 'Could not load models and pricing right now. Refresh the page and try again.'), code: 'SERVER_ERROR' });
   }
 }

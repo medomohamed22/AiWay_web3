@@ -1,4 +1,4 @@
-import { allowMethods, chargeTokens, cleanText, db, errorDetails, getModel, getTrialModelId, handleError, requireUser } from './_lib.js';
+import { affordableOutputLimit, allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, estimateChatCharge, fetchWithTimeout, getAvailableModels, getModel, getTrialModelId, handleError, isLowBalance, localize, openRouterError, requestLocale, requireUser, shouldTryModelFallback } from './_lib.js';
 
 function extractDownloadableFiles(text) {
   const files = [];
@@ -99,19 +99,26 @@ When the user asks for a long code file, prefer a downloadable file block rather
 For a PowerPoint, return one fenced pptx-json block containing valid JSON shaped as {"filename":"presentation.pptx","slides":[{"title":"...","bullets":["..."]}]}. Keep slide text concise and valid JSON with no comments.
 Use short headings only when useful, fenced code blocks with a language, and tables only for real comparisons.`;
 
+async function readProviderFailure(response) {
+  const text = await response.text().catch(() => '');
+  if (!text) return {};
+  try { return JSON.parse(text); } catch { return text; }
+}
+
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['GET', 'POST'])) return;
+  const uiLocale = requestLocale(req);
   try {
     if (req.method === 'GET' && String(req.query?.action || '') === 'download-file') return await downloadGeneratedFile(req, res);
     if (req.method === 'GET' && String(req.query?.action || '') === 'download-project') return await downloadGeneratedProject(req, res);
-    if (req.method !== 'POST') return res.status(400).json({ error: 'Invalid chat action' });
+    if (req.method !== 'POST') throw appError('INVALID_REQUEST');
+
     const user = await requireUser(req);
-    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [], locale = 'ar' } = req.body || {};
-    const uiLocale = String(locale).toLowerCase().startsWith('en') ? 'en' : 'ar';
-    if (!conversationId || !modelId || !Array.isArray(messages)) return res.status(400).json({ error: 'Invalid chat request' });
+    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [] } = req.body || {};
+    if (!conversationId || !modelId || !Array.isArray(messages)) throw appError('INVALID_CHAT_REQUEST');
 
     const [model, trialModelId] = await Promise.all([getModel(modelId), getTrialModelId()]);
-    if (!model) throw new Error('MODEL_UNAVAILABLE');
+    if (!model) throw appError('MODEL_UNAVAILABLE');
 
     const supabase = db();
     const { data: profile, error: profileError } = await supabase
@@ -119,13 +126,14 @@ export default async function handler(req, res) {
       .select('ai_tokens,trial_messages_remaining,has_purchased')
       .eq('id', user.id)
       .single();
-    if (profileError) throw profileError;
+    if (profileError || !profile) throw appError('DATABASE_ERROR', {}, profileError);
 
     const purchased = Boolean(profile.has_purchased);
-    if (!purchased && modelId !== trialModelId) throw new Error('MODEL_LOCKED');
-    if (!purchased && webSearch) throw new Error('TRIAL_WEB_LOCKED');
-    if (!purchased && Number(profile.trial_messages_remaining) <= 0) throw new Error('TRIAL_ENDED');
-    if (Number(profile.ai_tokens) < 1) throw new Error('INSUFFICIENT_TOKENS');
+    const availableTokens = Math.max(0, Number(profile.ai_tokens || 0));
+    if (!purchased && modelId !== trialModelId) throw appError('MODEL_LOCKED');
+    if (!purchased && webSearch) throw appError('TRIAL_WEB_LOCKED');
+    if (!purchased && Number(profile.trial_messages_remaining) <= 0) throw appError('TRIAL_ENDED');
+    if (availableTokens < 1) throw appError('INSUFFICIENT_TOKENS', { availableTokens });
 
     const cleaned = messages.slice(-40)
       .map(message => ({
@@ -134,14 +142,16 @@ export default async function handler(req, res) {
       }))
       .filter(message => message.content);
 
-    const safeAttachments = Array.isArray(attachments) ? attachments.slice(0, 3).filter(a =>
-      a && typeof a.name === 'string' && typeof a.type === 'string' &&
-      typeof a.dataUrl === 'string' && a.dataUrl.startsWith('data:') && a.dataUrl.length <= 4_300_000
-    ) : [];
+    const sourceAttachments = Array.isArray(attachments) ? attachments.slice(0, 3) : [];
+    const invalidAttachment = sourceAttachments.some(a => !a || typeof a.name !== 'string' || typeof a.type !== 'string' || typeof a.dataUrl !== 'string' || !a.dataUrl.startsWith('data:'));
+    if (invalidAttachment) throw appError('INVALID_ATTACHMENT');
+    if (sourceAttachments.some(a => a.dataUrl.length > 4_300_000)) throw appError('ATTACHMENT_TOO_LARGE');
+    const safeAttachments = sourceAttachments.filter(a => a.dataUrl.length <= 4_300_000);
+
     if (safeAttachments.length) {
       const lastIndex = [...cleaned].map(x => x.role).lastIndexOf('user');
       if (lastIndex >= 0) {
-        const text = cleaned[lastIndex].content || 'حلل الملفات المرفقة';
+        const text = cleaned[lastIndex].content || localize(uiLocale, 'حلل الملفات المرفقة', 'Analyze the attached files');
         cleaned[lastIndex].content = [
           { type: 'text', text },
           ...safeAttachments.map(a => a.type.startsWith('image/')
@@ -150,9 +160,30 @@ export default async function handler(req, res) {
         ];
       }
     }
-    const latestUserText=[...cleaned].reverse().find(m=>m.role==='user')?.content;
-    const language=detectLanguage(typeof latestUserText==='string'?latestUserText:latestUserText?.find?.(p=>p.type==='text')?.text);
-    const safeMessages = [{ role: 'system', content: formatSystemPrompt(model, language) }, ...cleaned.filter(message=>message.role!=='system')];
+
+    const latestUserText = [...cleaned].reverse().find(m => m.role === 'user')?.content;
+    const language = detectLanguage(typeof latestUserText === 'string' ? latestUserText : latestUserText?.find?.(part => part.type === 'text')?.text);
+    const safeMessages = [{ role: 'system', content: formatSystemPrompt(model, language) }, ...cleaned.filter(message => message.role !== 'system')];
+
+    const initialEstimate = estimateChatCharge(model.pricing, safeMessages, webSearch, 512);
+    if (availableTokens < initialEstimate.chargedTokens) {
+      throw appError('INSUFFICIENT_TOKENS_FOR_REQUEST', {
+        availableTokens,
+        requiredTokens: initialEstimate.chargedTokens,
+        shortfall: initialEstimate.chargedTokens - availableTokens
+      });
+    }
+
+    const initialMaxTokens = affordableOutputLimit(model.pricing, availableTokens, initialEstimate);
+    if (initialMaxTokens < 128) {
+      throw appError('INSUFFICIENT_TOKENS_FOR_REQUEST', {
+        availableTokens,
+        requiredTokens: initialEstimate.chargedTokens,
+        shortfall: Math.max(1, initialEstimate.chargedTokens - availableTokens)
+      });
+    }
+
+    if (!process.env.OPENROUTER_API_KEY) throw appError('MISSING_CONFIGURATION');
 
     const lastUserMessage = [...cleaned].reverse().find(message => message.role === 'user');
     if (lastUserMessage) {
@@ -160,13 +191,15 @@ export default async function handler(req, res) {
         conversation_id: conversationId,
         user_id: user.id,
         role: 'user',
-        content: typeof lastUserMessage.content === 'string' ? lastUserMessage.content : cleanText(lastUserMessage.content?.find?.(p => p.type === 'text')?.text || 'رسالة مع مرفقات', 30000),
-        token_usage: { attachments: safeAttachments.map(a => ({ name: cleanText(a.name,150), type: a.type, size: Number(a.size||0) })) }
+        content: typeof lastUserMessage.content === 'string'
+          ? lastUserMessage.content
+          : cleanText(lastUserMessage.content?.find?.(part => part.type === 'text')?.text || localize(uiLocale, 'رسالة مع مرفقات', 'Message with attachments'), 30000),
+        token_usage: { attachments: safeAttachments.map(a => ({ name: cleanText(a.name, 150), type: a.type, size: Number(a.size || 0) })) }
       });
-      if (error) throw error;
+      if (error) throw appError('DATABASE_ERROR', {}, error);
     }
 
-    const requestOpenRouter = selectedModelId => fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const requestOpenRouter = (selectedModelId, maxTokens) => fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
@@ -179,24 +212,54 @@ export default async function handler(req, res) {
         model: selectedModelId,
         messages: safeMessages,
         temperature: Number(temperature),
+        max_tokens: Math.max(128, Math.floor(maxTokens)),
         stream: true,
-        plugins: [webSearch ? { id: 'web' } : null, safeAttachments.some(a => a.type === 'application/pdf') ? { id: 'file-parser', pdf: { engine: 'cloudflare-ai' } } : null].filter(Boolean),
+        plugins: [
+          webSearch ? { id: 'web' } : null,
+          safeAttachments.some(a => a.type === 'application/pdf') ? { id: 'file-parser', pdf: { engine: 'cloudflare-ai' } } : null
+        ].filter(Boolean),
         user: user.id
       })
-    });
-    let response = await requestOpenRouter(modelId);
+    }, 60000);
+
+    let activeModel = model;
     let activeModelId = modelId;
     let fallbackUsed = false;
-    if (!response.ok && purchased) {
-      const catalog = await (await import('./_lib.js')).getAvailableModels();
-      const fallback = catalog.find(candidate => candidate.id !== modelId && candidate.family === model.family) || catalog.find(candidate => candidate.id !== modelId);
-      if (fallback) { activeModelId = fallback.id; response = await requestOpenRouter(activeModelId); fallbackUsed = response.ok; }
-    }
-    if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${(await response.text()).slice(0, 250)}`);
+    let response = await requestOpenRouter(activeModelId, initialMaxTokens);
 
+    if (!response.ok) {
+      let providerError = openRouterError(response.status, await readProviderFailure(response), { kind: 'chat' });
+      if (purchased && shouldTryModelFallback(providerError)) {
+        const catalog = await getAvailableModels();
+        const fallback = catalog.find(candidate => candidate.id !== modelId && candidate.family === model.family)
+          || catalog.find(candidate => candidate.id !== modelId);
+        if (fallback) {
+          const fallbackEstimate = estimateChatCharge(fallback.pricing, safeMessages, webSearch, 512);
+          if (availableTokens < fallbackEstimate.chargedTokens) {
+            throw appError('INSUFFICIENT_TOKENS_FOR_REQUEST', {
+              availableTokens,
+              requiredTokens: fallbackEstimate.chargedTokens,
+              shortfall: fallbackEstimate.chargedTokens - availableTokens
+            });
+          }
+          const fallbackMaxTokens = affordableOutputLimit(fallback.pricing, availableTokens, fallbackEstimate);
+          if (fallbackMaxTokens >= 128) {
+            activeModel = fallback;
+            activeModelId = fallback.id;
+            response = await requestOpenRouter(activeModelId, fallbackMaxTokens);
+            fallbackUsed = response.ok;
+            if (!response.ok) providerError = openRouterError(response.status, await readProviderFailure(response), { kind: 'chat' });
+          }
+        }
+      }
+      if (!response.ok) throw providerError;
+    }
+
+    if (!response.body) throw appError('STREAM_INTERRUPTED');
     res.statusCode = 200;
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no');
 
     let answer = '';
     let usage = {};
@@ -204,9 +267,11 @@ export default async function handler(req, res) {
     let routedModelId = '';
     let routerMetadata = null;
     let routeMismatch = null;
+    let streamError = null;
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -216,78 +281,110 @@ export default async function handler(req, res) {
       for (const line of lines) {
         if (!line.startsWith('data:')) continue;
         const raw = line.slice(5).trim();
-        if (raw === '[DONE]') continue;
+        if (!raw || raw === '[DONE]') continue;
         try {
           const event = JSON.parse(raw);
+          if (event.error) {
+            streamError = openRouterError(Number(event.error?.status || event.error?.code || 502), event, { kind: 'chat' });
+            continue;
+          }
           if (event.id && !generationId) generationId = event.id;
           if (event.model) routedModelId = event.model;
           if (event.openrouter_metadata) routerMetadata = event.openrouter_metadata;
-          if (routedModelId && routedModelId !== activeModelId) {
-            routeMismatch = { requested: activeModelId, routed: routedModelId };
-          }
+          if (routedModelId && routedModelId !== activeModelId) routeMismatch = { requested: activeModelId, routed: routedModelId };
           const text = event.choices?.[0]?.delta?.content || '';
-          if (text && !routeMismatch) {
+          if (text && !routeMismatch && !streamError) {
             answer += text;
             res.write(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`);
           }
           if (event.usage) usage = event.usage;
-        } catch {}
-      }
-    }
-
-    if (routeMismatch) throw new Error(`MODEL_ROUTE_MISMATCH:${routeMismatch.requested}:${routeMismatch.routed}`);
-
-    const charge = chargeTokens(model.pricing, usage, webSearch);
-    if (answer) {
-      const { error: chargeError } = await supabase.rpc('consume_ai_tokens', {
-        p_user_id: user.id,
-        p_amount: charge.chargedTokens
-      });
-      if (chargeError) throw new Error('INSUFFICIENT_TOKENS');
-
-      const { data: savedAssistant, error: saveAssistantError } = await supabase.from('messages').insert({
-        conversation_id: conversationId,
-        user_id: user.id,
-        role: 'assistant',
-        content: answer,
-        model_id: modelId,
-        token_usage: {
-          ...usage,
-          ...charge,
-          requestedModelId: modelId,
-          activeModelId,
-          fallbackUsed,
-          routedModelId: routedModelId || activeModelId,
-          generationId: generationId || null,
-          routerMetadata
+          if (event.choices?.[0]?.finish_reason === 'error') streamError = appError('PROVIDER_ERROR');
+        } catch {
+          // Ignore malformed provider heartbeat lines without exposing them to the user.
         }
-      }).select('id').single();
-      if (saveAssistantError) throw saveAssistantError;
-      usage.savedMessageId = savedAssistant?.id || null;
-      await supabase.from('conversations')
-        .update({ model_id: modelId, updated_at: new Date().toISOString() })
-        .eq('id', conversationId)
-        .eq('user_id', user.id);
+      }
+      if (streamError) break;
     }
+
+    if (streamError) throw streamError;
+    if (routeMismatch) throw appError('MODEL_ROUTE_MISMATCH', { requestedModelId: routeMismatch.requested, routedModelId: routeMismatch.routed });
+    if (!answer.trim()) throw appError('EMPTY_RESPONSE');
+
+    const charge = chargeTokens(activeModel.pricing, usage, webSearch);
+    if (charge.chargedTokens > availableTokens) {
+      throw appError('INSUFFICIENT_TOKENS_FOR_REQUEST', {
+        availableTokens,
+        requiredTokens: charge.chargedTokens,
+        shortfall: charge.chargedTokens - availableTokens
+      });
+    }
+
+    const { data: savedAssistant, error: saveAssistantError } = await supabase.from('messages').insert({
+      conversation_id: conversationId,
+      user_id: user.id,
+      role: 'assistant',
+      content: answer,
+      model_id: modelId,
+      token_usage: {
+        ...usage,
+        ...charge,
+        requestedModelId: modelId,
+        activeModelId,
+        fallbackUsed,
+        routedModelId: routedModelId || activeModelId,
+        generationId: generationId || null,
+        routerMetadata
+      }
+    }).select('id').single();
+    if (saveAssistantError || !savedAssistant) throw appError('DATABASE_ERROR', {}, saveAssistantError);
+
+    const { error: chargeError } = await supabase.rpc('consume_ai_tokens', {
+      p_user_id: user.id,
+      p_amount: charge.chargedTokens
+    });
+    if (chargeError) {
+      await supabase.from('messages').delete().eq('id', savedAssistant.id).eq('user_id', user.id);
+      throw await classifyTokenChargeFailure(supabase, user.id, charge.chargedTokens, chargeError);
+    }
+
+    const { data: updatedProfile } = await supabase.from('users').select('ai_tokens').eq('id', user.id).single();
+    const remainingTokens = Math.max(0, Number(updatedProfile?.ai_tokens ?? availableTokens - charge.chargedTokens));
+    const conversationUpdate = await supabase.from('conversations')
+      .update({ model_id: modelId, updated_at: new Date().toISOString() })
+      .eq('id', conversationId)
+      .eq('user_id', user.id);
+    if (conversationUpdate.error) console.warn('Conversation timestamp update failed:', conversationUpdate.error.message);
 
     res.write(`data: ${JSON.stringify({
       type: 'done',
       usage,
       chargedTokens: charge.chargedTokens,
+      remainingTokens,
+      lowBalance: isLowBalance(remainingTokens, charge.chargedTokens),
       requestedModelId: modelId,
       routedModelId: routedModelId || activeModelId,
       fallbackUsed,
       activeModelId,
       generationId: generationId || null,
-      messageId: usage.savedMessageId || null
+      messageId: savedAssistant.id
     })}\n\n`);
-    res.end();
+    return res.end();
   } catch (error) {
     if (res.headersSent) {
       const details = errorDetails(error, uiLocale);
-      res.write(`data: ${JSON.stringify({ type: 'error', error: details?.message || (uiLocale === 'ar' ? 'تعذر إكمال الطلب.' : 'Could not complete the request.'), code: details?.code || null })}\n\n`);
+      res.write(`data: ${JSON.stringify({
+        type: 'error',
+        error: details?.message || localize(uiLocale, 'حدث عطل مؤقت. حاول مرة أخرى؛ لم يتم خصم رصيدك.', 'A temporary error occurred. Try again; your balance was not charged.'),
+        code: details?.code || 'SERVER_ERROR',
+        ...(details?.meta || {})
+      })}\n\n`);
       return res.end();
     }
-    return handleError(error, res, uiLocale === 'ar' ? 'تعذر إرسال رسالة المحادثة.' : 'Chat request failed.', uiLocale);
+    return handleError(
+      error,
+      res,
+      localize(uiLocale, 'حدث عطل مؤقت أثناء معالجة الرسالة. حاول مرة أخرى؛ لم يتم خصم رصيدك.', 'A temporary error occurred while processing the message. Try again; your balance was not charged.'),
+      uiLocale
+    );
   }
 }
