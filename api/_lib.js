@@ -208,7 +208,7 @@ function normalizeModel(model, family) {
 }
 
 export async function getAvailableModels() {
-  if (Date.now() - catalogCache.at < 60 * 60 * 1000 && catalogCache.models.length >= 12) return catalogCache.models;
+  if (Date.now() - catalogCache.at < 60 * 60 * 1000 && catalogCache.models.length >= 20) return catalogCache.models;
   try {
     const response = await fetch('https://openrouter.ai/api/v1/models', {
       headers: process.env.OPENROUTER_API_KEY ? { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` } : {}
@@ -221,10 +221,10 @@ export async function getAvailableModels() {
         .filter(model => String(model.id || '').startsWith(family.prefix) && isTextChatModel(model))
         .map(model => normalizeModel(model, family))
         .sort((a, b) => b.created - a.created || a.name.localeCompare(b.name))
-        .slice(0, 3);
+        .slice(0, 5);
       selected.push(...familyModels);
     }
-    if (selected.length < 12) throw new Error('Incomplete OpenRouter catalog');
+    if (selected.length < FAMILY_CONFIG.length * 5) throw new Error('Incomplete OpenRouter catalog');
     const trialFromPayload = (payload.data || []).find(model => model.id === TRIAL_MODEL_FALLBACK);
     const trialModel = trialFromPayload
       ? normalizeModel(trialFromPayload, FAMILY_CONFIG.find(family => family.key === 'gemini'))
