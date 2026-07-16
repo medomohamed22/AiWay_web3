@@ -11,27 +11,35 @@ function safeFilename(value, extension) {
 async function downloadImage(req, res) {
   const token = String(req.body?.token || '');
   const imageId = String(req.body?.imageId || '');
-  if (!token || !imageId) throw new Error('UNAUTHORIZED');
+  if (!imageId) throw new Error('UNAUTHORIZED');
 
   const originalAuthorization = req.headers.authorization;
-  req.headers.authorization = `Bearer ${token}`;
+  if (token) req.headers.authorization = `Bearer ${token}`;
   const user = await requireUser(req);
   req.headers.authorization = originalAuthorization;
 
   const { data: image, error } = await db()
     .from('generated_images')
-    .select('id,media_type,thumbnail_data,created_at')
+    .select('id,media_type,thumbnail_data,storage_path,created_at')
     .eq('id', imageId)
     .eq('user_id', user.id)
     .single();
-  if (error || !image?.thumbnail_data) throw new Error('IMAGE_NOT_FOUND');
+  if (error || !image) throw new Error('IMAGE_NOT_FOUND');
 
-  const match = String(image.thumbnail_data).match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
-  if (!match) throw new Error('IMAGE_NOT_FOUND');
-
-  const mediaType = String(image.media_type || match[1] || 'image/jpeg').toLowerCase();
+  let file;
+  let mediaType = String(image.media_type || 'image/jpeg').toLowerCase();
+  if (image.storage_path) {
+    const { data, error: storageError } = await db().storage.from('generated-images').download(image.storage_path);
+    if (storageError || !data) throw new Error('IMAGE_NOT_FOUND');
+    file = Buffer.from(await data.arrayBuffer());
+    mediaType = String(data.type || mediaType);
+  } else {
+    const match = String(image.thumbnail_data || '').match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
+    if (!match) throw new Error('IMAGE_NOT_FOUND');
+    mediaType = String(image.media_type || match[1] || 'image/jpeg').toLowerCase();
+    file = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+  }
   const extension = mediaType.includes('png') ? 'png' : mediaType.includes('webp') ? 'webp' : 'jpg';
-  const file = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
   const filename = safeFilename(`AiWay-${image.id}`, extension);
 
   res.status(200);
@@ -43,6 +51,46 @@ async function downloadImage(req, res) {
   return res.end(file);
 }
 
+
+
+async function persistImage(req, res) {
+  const user = await requireUser(req);
+  const imageId = String(req.body?.imageId || '');
+  const imageData = String(req.body?.imageData || '');
+  if (!imageId || !imageData) return json(res, 400, { error: 'Image data required' });
+
+  const match = imageData.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
+  if (!match) return json(res, 400, { error: 'Invalid image data' });
+  const mediaType = String(match[1] || 'image/jpeg').toLowerCase();
+  const extension = mediaType.includes('png') ? 'png' : mediaType.includes('webp') ? 'webp' : 'jpg';
+  const file = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+  if (!file.length || file.length > 25 * 1024 * 1024) return json(res, 413, { error: 'Image is too large' });
+
+  const supabase = db();
+  const { data: image, error } = await supabase.from('generated_images')
+    .select('id,user_id,storage_path')
+    .eq('id', imageId).eq('user_id', user.id).single();
+  if (error || !image) throw new Error('IMAGE_NOT_FOUND');
+  if (image.storage_path) return json(res, 200, { saved: true, storagePath: image.storage_path });
+
+  const storagePath = `${user.id}/${imageId}.${extension}`;
+  const { error: uploadError } = await supabase.storage.from('generated-images').upload(storagePath, file, {
+    contentType: mediaType,
+    cacheControl: '31536000',
+    upsert: false
+  });
+  if (uploadError && !/already exists|duplicate/i.test(String(uploadError.message || ''))) throw uploadError;
+
+  const { error: updateError } = await supabase.from('generated_images').update({
+    storage_path: storagePath,
+    storage_status: 'ready',
+    file_size: file.length,
+    stored_at: new Date().toISOString(),
+    thumbnail_data: null
+  }).eq('id', imageId).eq('user_id', user.id);
+  if (updateError) throw updateError;
+  return json(res, 200, { saved: true, storagePath });
+}
 
 let imageModelCache = { at: 0, model: null };
 async function getImageModel(requestedModelId = '') {
@@ -63,6 +111,7 @@ export default async function handler(req, res) {
   if (!allowMethods(req, res, ['POST'])) return;
   try {
     if (req.body?.action === 'download') return await downloadImage(req, res);
+    if (req.body?.action === 'persist') return await persistImage(req, res);
     const user = await requireUser(req);
     const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1' } = req.body || {};
     const allowedRatios = new Set(['1:1','16:9','9:16','4:3','3:4','3:2','2:3']);
@@ -91,7 +140,7 @@ export default async function handler(req, res) {
     if (ue) throw ue;
     const { data: message, error: me } = await supabase.from('messages').insert({ conversation_id: conversationId, user_id: user.id, role: 'assistant', content: 'تم إنشاء الصورة المطلوبة.', model_id: model.id, token_usage: { ...payload.usage, ...charge, type: 'image' } }).select('id').single();
     if (me) throw me;
-    const { data: image, error: ie } = await supabase.from('generated_images').insert({ message_id: message.id, conversation_id: conversationId, user_id: user.id, model_id: model.id, prompt: cleanText(prompt, 4000), media_type: mediaType, thumbnail_data: thumbnailData, width: safeAspectRatio === '9:16' ? 512 : safeAspectRatio === '3:4' ? 768 : safeAspectRatio === '2:3' ? 768 : safeAspectRatio === '16:9' ? 1024 : safeAspectRatio === '4:3' ? 1024 : safeAspectRatio === '3:2' ? 1024 : 512, height: safeAspectRatio === '16:9' ? 576 : safeAspectRatio === '4:3' ? 768 : safeAspectRatio === '3:2' ? 683 : safeAspectRatio === '9:16' ? 910 : safeAspectRatio === '3:4' ? 1024 : safeAspectRatio === '2:3' ? 1152 : 512, token_usage: { ...payload.usage, ...charge, aspectRatio: safeAspectRatio } }).select('*').single();
+    const { data: image, error: ie } = await supabase.from('generated_images').insert({ message_id: message.id, conversation_id: conversationId, user_id: user.id, model_id: model.id, prompt: cleanText(prompt, 4000), media_type: mediaType, thumbnail_data: thumbnailData, storage_status: 'pending', width: safeAspectRatio === '9:16' ? 512 : safeAspectRatio === '3:4' ? 768 : safeAspectRatio === '2:3' ? 768 : safeAspectRatio === '16:9' ? 1024 : safeAspectRatio === '4:3' ? 1024 : safeAspectRatio === '3:2' ? 1024 : 512, height: safeAspectRatio === '16:9' ? 576 : safeAspectRatio === '4:3' ? 768 : safeAspectRatio === '3:2' ? 683 : safeAspectRatio === '9:16' ? 910 : safeAspectRatio === '3:4' ? 1024 : safeAspectRatio === '2:3' ? 1152 : 512, token_usage: { ...payload.usage, ...charge, aspectRatio: safeAspectRatio } }).select('*').single();
     if (ie) throw ie;
     await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId).eq('user_id', user.id);
     return json(res, 200, { image, chargedTokens });
