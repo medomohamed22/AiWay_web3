@@ -96,6 +96,14 @@
 body.model-menu-open{overscroll-behavior:none}
 @keyframes modelPortalOpen{from{opacity:0;transform:translateY(-6px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
 @media(max-width:700px){.model-menu.model-menu-portal{border-radius:18px!important;max-width:none!important;max-height:calc(var(--app-height,100vh) - 88px)!important}}
+
+/* Native model picker: keeps the polished trigger while Pi Browser opens its reliable system list. */
+.model-wrap{position:relative!important}
+.model-native{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;opacity:.001!important;pointer-events:auto!important;z-index:50!important;cursor:pointer!important;display:block!important;-webkit-appearance:menulist!important;appearance:auto!important}
+.model-trigger{pointer-events:none!important;position:relative!important;z-index:1!important}
+.model-wrap:focus-within .model-trigger{border-color:#cdb1e3;box-shadow:0 10px 28px rgba(84,39,120,.13)}
+.model-wrap:focus-within .model-chevron{transform:rotate(180deg)}
+.model-menu,.model-menu-scrim{display:none!important}
 </style>
 </head>
 <body>
@@ -115,10 +123,10 @@ body.model-menu-open{overscroll-behavior:none}
 <header class="topbar">
   <button class="icon-btn mobile-menu" id="menuBtn" aria-label="Menu"><span data-icon="menu"></span></button>
   <div class="model-wrap" id="modelWrap">
-    <select class="model-select model-native" id="model" aria-label="Choose AI model" tabindex="-1">
+    <select class="model-select model-native" id="model" aria-label="Choose AI model">
       <option value="">Loading models...</option>
     </select>
-    <button class="model-trigger" id="modelTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+    <button class="model-trigger" id="modelTrigger" type="button" aria-hidden="true" tabindex="-1">
       <span class="model-trigger-icon" id="modelTriggerIcon"></span>
       <span class="model-trigger-copy"><b id="modelTriggerName">Loading models...</b><small id="modelTriggerType">AI Chat</small></span>
       <span class="model-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
@@ -151,28 +159,21 @@ function toggleLanguage(){lang=lang==='en'?'ar':'en';localStorage.setItem('aiway
 async function deleteChat(id){const ok=confirm(lang==='ar'?'هل تريد حذف هذه الدردشة نهائيًا؟':'Delete this chat permanently?');if(!ok)return;await api('/api/conversations?id='+encodeURIComponent(id),{method:'DELETE'});if(current===id){current=null;history=[];render()}await loadChats();toast(lang==='ar'?'تم حذف الدردشة':'Chat deleted')}
 function initPi(){let tries=0;const timer=setInterval(()=>{tries++;if(window.Pi?.init){clearInterval(timer);try{Pi.init({version:'2.0',sandbox:false});piReady=true;$('profileState').textContent=auth?(lang==='ar'?'متصل بحساب Pi':'Connected with Pi'):(lang==='ar'?'جاهز لتسجيل الدخول':'Ready to sign in')}catch(e){console.error(e)}}else if(tries>30){clearInterval(timer);$('profileState').textContent=lang==='ar'?'افتح الموقع داخل Pi Browser':'Open this site in Pi Browser'}},150)}
 function renderModelSelect(selected=''){
-  const select=$('model'),menu=$('modelMenu');
+  const select=$('model');
   const chatModels=window.aiwayModels||[],imageModels=window.aiwayImageModels||[],all=[...chatModels,...imageModels];
-  if(!all.length){select.innerHTML='<option value="">No models available</option>';menu.innerHTML=`<div class="model-provider">${lang==='ar'?'لا توجد نماذج متاحة':'No models available'}</div>`;updateModelTrigger();return}
+  if(!all.length){select.innerHTML='<option value="">No models available</option>';updateModelTrigger();return}
   const preferred=selected&&all.some(m=>m.id===selected&&!m.locked)?selected:(chatModels.find(m=>m.trial&&!m.locked)||chatModels.find(m=>!m.locked)||all.find(m=>!m.locked)||all[0]).id;
-  select.innerHTML=all.map(m=>`<option value="${esc(m.id)}">${esc(m.shortName||shortModelName(m.name||m.id))}</option>`).join('');
+  const nativeOption=m=>`<option value="${esc(m.id)}" ${m.locked?'disabled':''}>${esc(m.shortName||shortModelName(m.name||m.id))}${m.locked?(lang==='ar'?' — مقفول':' — Locked'):''}</option>`;
+  let html=`<optgroup label="AI Chat">${chatModels.map(nativeOption).join('')}</optgroup>`;
+  if(imageModels.length)html+=`<optgroup label="AI Images">${imageModels.map(nativeOption).join('')}</optgroup>`;
+  select.innerHTML=html;
   select.value=preferred;
-  const option=m=>`<button type="button" class="model-option ${m.id===preferred?'selected':''}" role="option" aria-selected="${m.id===preferred}" data-model-id="${esc(m.id)}" ${m.locked?'disabled':''}><span class="model-option-dot"></span><span class="model-option-copy"><b>${esc(m.shortName||shortModelName(m.name||m.id))}</b><small>${esc(m.name||m.id)}</small></span>${m.locked?`<span class="model-lock">${lang==='ar'?'مقفول':'Locked'}</span>`:''}</button>`;
-  let html=`<section class="model-section"><div class="model-section-title">${MODEL_ICONS.chat}<span>AI Chat</span></div>${chatModels.map(option).join('')}</section>`;
-  if(imageModels.length){
-    const groups=new Map();for(const m of imageModels){const key=m.providerLabel||m.provider||'AI Images';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(m)}
-    html+=`<section class="model-section"><div class="model-section-title image">${MODEL_ICONS.image}<span>AI Images</span></div>`;
-    for(const [label,items] of groups)html+=`<div class="model-provider">${esc(label)}</div>${items.map(option).join('')}`;
-    html+='</section>';
-  }
-  menu.innerHTML=html;
-  menu.querySelectorAll('[data-model-id]').forEach(btn=>btn.onclick=()=>selectModel(btn.dataset.modelId));
   updateModelTrigger();syncModelMode();
 }
 function selectModel(id){
   const model=[...(window.aiwayModels||[]),...(window.aiwayImageModels||[])].find(m=>m.id===id);
-  if(!model||model.locked){toast(lang==='ar'?'هذا النموذج مقفول':'This model is locked');return}
-  $('model').value=id;closeModelMenu();renderModelSelect(id);
+  if(!model||model.locked){toast(lang==='ar'?'هذا النموذج مقفول':'This model is locked');renderModelSelect($('model').value);return}
+  $('model').value=id;updateModelTrigger();syncModelMode();
 }
 function updateModelTrigger(){
   const m=selectedModel(),isImage=m?.type==='image';
@@ -181,28 +182,8 @@ function updateModelTrigger(){
   $('modelTriggerName').textContent=m?(m.shortName||shortModelName(m.name||m.id)):(lang==='ar'?'اختر نموذجًا':'Choose a model');
   $('modelTriggerType').textContent=isImage?'AI Images':'AI Chat';
 }
-function ensureModelMenuPortal(){
-  const menu=$('modelMenu');
-  let scrim=$('modelMenuScrim');
-  if(!scrim){scrim=document.createElement('div');scrim.id='modelMenuScrim';scrim.className='model-menu-scrim';scrim.setAttribute('aria-hidden','true');document.body.appendChild(scrim);scrim.addEventListener('click',closeModelMenu);scrim.addEventListener('touchstart',closeModelMenu,{passive:true})}
-  if(menu.parentElement!==document.body)document.body.appendChild(menu);
-  menu.classList.add('model-menu-portal');
-  return {menu,scrim};
-}
-function positionModelMenu(){
-  const menu=$('modelMenu'),trigger=$('modelTrigger');if(!menu||!trigger||!menu.classList.contains('open'))return;
-  const rect=trigger.getBoundingClientRect(),viewport=window.visualViewport,w=viewport?viewport.width:window.innerWidth,h=viewport?viewport.height:window.innerHeight,offsetTop=viewport?viewport.offsetTop:0,margin=10,gap=8;
-  if(w<=700){menu.style.left=margin+'px';menu.style.right='auto';menu.style.width=Math.max(240,w-margin*2)+'px';menu.style.top=Math.max(offsetTop+76,rect.bottom+gap)+'px';menu.style.maxHeight=Math.max(180,h-(Math.max(76,rect.bottom+gap-offsetTop))-margin)+'px'}
-  else{const width=Math.min(390,w-margin*2);let left=document.documentElement.dir==='rtl'?rect.right-width:rect.left;left=Math.max(margin,Math.min(left,w-width-margin));let top=rect.bottom+gap+offsetTop;const below=h-(rect.bottom-offsetTop)-gap-margin,above=rect.top-offsetTop-gap-margin;if(below<260&&above>below){menu.style.maxHeight=Math.max(180,above)+'px';top=rect.top-menu.offsetHeight-gap+offsetTop}else menu.style.maxHeight=Math.max(220,Math.min(560,below))+'px';menu.style.left=left+'px';menu.style.right='auto';menu.style.width=width+'px';menu.style.top=Math.max(offsetTop+margin,top)+'px'}
-}
-function openModelMenu(){
-  const {menu,scrim}=ensureModelMenuPortal(),trigger=$('modelTrigger');
-  menu.classList.add('open');scrim.classList.add('open');document.body.classList.add('model-menu-open');trigger.classList.add('open');trigger.setAttribute('aria-expanded','true');
-  requestAnimationFrame(()=>{positionModelMenu();const selected=menu.querySelector('.model-option.selected');if(selected)selected.scrollIntoView({block:'nearest'})});
-}
-function closeModelMenu(){const menu=$('modelMenu'),trigger=$('modelTrigger'),scrim=$('modelMenuScrim');if(menu)menu.classList.remove('open');if(scrim)scrim.classList.remove('open');document.body.classList.remove('model-menu-open');if(trigger){trigger.classList.remove('open');trigger.setAttribute('aria-expanded','false')}}
-function toggleModelMenu(){const menu=$('modelMenu');menu&&menu.classList.contains('open')?closeModelMenu():openModelMenu()}
-function shortModelName(name){return String(name||'').replace(/^(OpenAI|Google|Anthropic|DeepSeek)[:\s-]+/i,'').replace(/\s+(Preview|Experimental)(?:\s+\d{2}-\d{2})?$/i,'').trim().slice(0,32)}
+function closeModelMenu(){const trigger=$('modelTrigger');if(trigger){trigger.classList.remove('open');trigger.setAttribute('aria-expanded','false')}}
+function shortModelName(name){return String(name||'').replace(/^(OpenAI|Google|Anthropic|DeepSeek|Meta|Mistral|xAI|Microsoft|Qwen)[:\s-]+/i,'').replace(/\s+\((?:Fast|Preview|Experimental)[^)]*\)$/i,'').replace(/\s+(Preview|Experimental)(?:\s+\d{2}-\d{2})?$/i,'').trim().slice(0,30)}
 async function loadModels(){
   const selected=$('model').value;
   const data=await api('/api/models');
@@ -354,6 +335,6 @@ function openPay(){if(!auth)return login();$('payModal').classList.add('open')}
 function renderPackages(){const box=document.querySelector('.packs');if(!box||!window.aiwayPackages)return;const labels=lang==='ar'?{starter:'أساسية',plus:'الأكثر توفيرًا',pro:'احترافية'}:{starter:'Starter',plus:'Best value',pro:'Pro'};box.innerHTML=Object.entries(window.aiwayPackages).map(([id,p])=>`<div class="pack ${id==='plus'?'featured':''}"><small>${labels[id]||id}</small><b>${Number(p.tokens).toLocaleString()}</b><small>AiWay Tokens</small><span class="pi-estimate">${p.amountPi?Math.round(Number(p.amountPi)):'--'} Pi</span><span class="usd-note">≈ $${p.usd}</span><button class="btn ${id==='plus'?'primary':'soft'}" onclick="buy('${id}')">${lang==='ar'?'شراء بـ Pi':'Buy with Pi'}</button></div>`).join('')}
 async function buy(packageId){if(!piReady||!window.Pi?.createPayment)return toast(lang==='ar'?'الدفع متاح داخل Pi Browser فقط':'Payments are available in Pi Browser only');const pkg=window.aiwayPackages?.[packageId];if(!pkg?.amountPi)return toast(lang==='ar'?'تعذر جلب سعر Pi الآن':'Could not retrieve the current Pi price');const btn=document.querySelector(`[onclick="buy('${packageId}')"]`);const original=btn?.textContent;if(btn){btn.disabled=true;btn.classList.add('loading');btn.textContent=lang==='ar'?'جاري التحويل للدفع':'Opening payment'}try{await authenticatePiForPayments({refreshSession:true,silentRecovery:true});$('payModal').classList.remove('open');await Pi.createPayment({amount:Number(pkg.amountPi),memo:`Purchase ${Number(pkg.tokens).toLocaleString('en-US')} AiWay Tokens for $${pkg.usd}`,metadata:{packageId,usd:pkg.usd,tokens:pkg.tokens,piUsd:pkg.piUsd}}, {onReadyForServerApproval:paymentId=>api('/api/payment-approve',{method:'POST',body:JSON.stringify({paymentId,packageId})}),onReadyForServerCompletion:async(paymentId,txid)=>{await api('/api/payment-complete',{method:'POST',body:JSON.stringify({paymentId,txid,packageId})});await Promise.all([refreshMe(),loadModels()]);toast(lang==='ar'?'تمت إضافة الرصيد وفتح جميع النماذج':'Balance added and all models unlocked')},onCancel:()=>toast(lang==='ar'?'تم إلغاء الدفع':'Payment cancelled'),onError:e=>toast(e?.message||(lang==='ar'?'حدث خطأ في الدفع':'Payment error'))})}catch(e){toast(e.message||(lang==='ar'?'تعذر بدء الدفع':'Could not start payment'))}finally{if(btn){btn.disabled=false;btn.classList.remove('loading');btn.textContent=original}}}
 function autoSize(){const t=$('prompt');t.style.height='auto';t.style.height=Math.min(t.scrollHeight,180)+'px'}function closeMenu(){$('sidebar').classList.remove('open');$('backdrop').classList.remove('open')}
-$('modelTrigger').onclick=e=>{e.preventDefault();e.stopPropagation();toggleModelMenu()};document.addEventListener('click',e=>{const wrap=$('modelWrap'),menu=$('modelMenu');if(!wrap.contains(e.target)&&!menu.contains(e.target))closeModelMenu()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModelMenu()});window.addEventListener('resize',positionModelMenu,{passive:true});window.addEventListener('orientationchange',()=>setTimeout(positionModelMenu,150),{passive:true});window.addEventListener('scroll',positionModelMenu,{passive:true,capture:true});$('newChatBtn').onclick=newChat;$('loginBtn').onclick=()=>auth?logout():login();$('payBtn').onclick=openPay;$('languageBtn').onclick=toggleLanguage;$('menuBtn').onclick=()=>{$('sidebar').classList.add('open');$('backdrop').classList.add('open')};$('backdrop').onclick=closeMenu;$('exportBtn').onclick=exportChat;$('webPill').onclick=toggleWeb;$('attachBtn').onclick=()=>$('fileInput').click();$('fileInput').onchange=e=>addFiles(e.target.files);$('sendBtn').onclick=sendMessage;$('prompt').oninput=autoSize;$('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}};$('closePay').onclick=()=>$('payModal').classList.remove('open');$('payModal').onclick=e=>{if(e.target===$('payModal'))$('payModal').classList.remove('open')};document.querySelectorAll('.buy').forEach(b=>b.onclick=()=>buy(b.dataset.pack));function syncViewportHeight(){const vv=window.visualViewport;const h=vv?vv.height:window.innerHeight;document.documentElement.style.setProperty('--app-height',Math.round(h)+'px')}syncViewportHeight();window.addEventListener('resize',syncViewportHeight,{passive:true});window.addEventListener('orientationchange',()=>setTimeout(syncViewportHeight,120),{passive:true});if(window.visualViewport){window.visualViewport.addEventListener('resize',()=>{syncViewportHeight();positionModelMenu()},{passive:true});window.visualViewport.addEventListener('scroll',()=>{syncViewportHeight();positionModelMenu()},{passive:true})}window.addEventListener('DOMContentLoaded',init);
+$('model').onchange=e=>selectModel(e.target.value);$('model').onfocus=()=>{$('modelTrigger').classList.add('open');$('modelTrigger').setAttribute('aria-expanded','true')};$('model').onblur=()=>closeModelMenu();$('newChatBtn').onclick=newChat;$('loginBtn').onclick=()=>auth?logout():login();$('payBtn').onclick=openPay;$('languageBtn').onclick=toggleLanguage;$('menuBtn').onclick=()=>{$('sidebar').classList.add('open');$('backdrop').classList.add('open')};$('backdrop').onclick=closeMenu;$('exportBtn').onclick=exportChat;$('webPill').onclick=toggleWeb;$('attachBtn').onclick=()=>$('fileInput').click();$('fileInput').onchange=e=>addFiles(e.target.files);$('sendBtn').onclick=sendMessage;$('prompt').oninput=autoSize;$('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}};$('closePay').onclick=()=>$('payModal').classList.remove('open');$('payModal').onclick=e=>{if(e.target===$('payModal'))$('payModal').classList.remove('open')};document.querySelectorAll('.buy').forEach(b=>b.onclick=()=>buy(b.dataset.pack));function syncViewportHeight(){const vv=window.visualViewport;const h=vv?vv.height:window.innerHeight;document.documentElement.style.setProperty('--app-height',Math.round(h)+'px')}syncViewportHeight();window.addEventListener('resize',syncViewportHeight,{passive:true});window.addEventListener('orientationchange',()=>setTimeout(syncViewportHeight,120),{passive:true});if(window.visualViewport){window.visualViewport.addEventListener('resize',()=>{syncViewportHeight();positionModelMenu()},{passive:true});window.visualViewport.addEventListener('scroll',()=>{syncViewportHeight();positionModelMenu()},{passive:true})}window.addEventListener('DOMContentLoaded',init);
 </script>
 </body></html>
