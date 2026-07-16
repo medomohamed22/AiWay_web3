@@ -1,14 +1,13 @@
 import { allowMethods, chargeTokens, cleanText, db, getModel, getTrialModelId, handleError, requireUser } from './_lib.js';
 
-const formatSystemPrompt = model => `أنت نموذج ${model.name || model.id} من عائلة ${model.tag || 'الذكاء الاصطناعي'}، ويتم تقديمك داخل منصة AiWay.
-عندما يسألك المستخدم: من أنت؟ أو ما اسم نموذجك؟ اذكر اسمك الحقيقي: ${model.name || model.id}. لا تقل إن اسمك AiWay، لأن AiWay اسم المنصة فقط.
-قدّم إجابات عربية واضحة ومنظمة وطبيعية.
-استخدم عناوين قصيرة عند الحاجة، ثم نقاطًا بشرطة أو خطوات مرقمة.
-لا تستخدم علامات النجمة للتنسيق، ولا تستخدم النص الغامق بعلامتي نجمة.
-لا تضع كل إجابة في قائمة عندما تكفي جملة مباشرة.
-ضع الأكواد فقط داخل fenced Markdown code block مع اسم اللغة، مثل \`\`\`javascript.
-استخدم الجداول فقط عند وجود مقارنة فعلية.
-ابدأ بالنتيجة المهمة مباشرة، ثم أضف الشرح العملي باختصار.`;
+const detectLanguage = text => /[\u0600-\u06FF]/.test(String(text || '')) ? 'ar' : 'en';
+const formatSystemPrompt = (model, language) => `${language === 'ar' ? `أنت نموذج ${model.name || model.id} داخل منصة AiWay. أجب بالعربية الواضحة ما دام آخر طلب للمستخدم بالعربية، وإذا كتب بالإنجليزية فأجب بالإنجليزية.` : `You are ${model.name || model.id} inside the AiWay platform. Reply in English while the user's latest request is in English, and reply in Arabic when it is Arabic.`}
+Maintain full continuity with all earlier messages in this conversation. Never ignore relevant context already provided.
+Return polished Markdown only. Keep links valid and code syntactically complete. Do not expose partial markup or unfinished code.
+For a downloadable code/text file, use a fenced block whose language is file-FILENAME, for example: \`\`\`file-index.html. Put only the complete file contents inside it.
+When the user asks for a long code file, prefer a downloadable file block rather than an excessively long inline explanation.
+For a PowerPoint, return one fenced pptx-json block containing valid JSON shaped as {"filename":"presentation.pptx","slides":[{"title":"...","bullets":["..."]}]}. Keep slide text concise and valid JSON with no comments.
+Use short headings only when useful, fenced code blocks with a language, and tables only for real comparisons.`;
 
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['POST'])) return;
@@ -57,9 +56,9 @@ export default async function handler(req, res) {
         ];
       }
     }
-    const safeMessages = cleaned.some(message => message.role === 'system')
-      ? cleaned
-      : [{ role: 'system', content: formatSystemPrompt(model) }, ...cleaned];
+    const latestUserText=[...cleaned].reverse().find(m=>m.role==='user')?.content;
+    const language=detectLanguage(typeof latestUserText==='string'?latestUserText:latestUserText?.find?.(p=>p.type==='text')?.text);
+    const safeMessages = [{ role: 'system', content: formatSystemPrompt(model, language) }, ...cleaned.filter(message=>message.role!=='system')];
 
     const lastUserMessage = [...cleaned].reverse().find(message => message.role === 'user');
     if (lastUserMessage) {
