@@ -31,6 +31,33 @@ function fileContentType(filename) {
   return types[ext] || 'application/octet-stream';
 }
 
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function makeStoreZip(files) {
+  const local = [], central = []; let offset = 0;
+  for (const file of files) {
+    const name = Buffer.from(safeDownloadFilename(file.name), 'utf8');
+    const data = Buffer.from(file.content, 'utf8'); const crc = crc32(data);
+    const header = Buffer.alloc(30); header.writeUInt32LE(0x04034b50,0); header.writeUInt16LE(20,4); header.writeUInt16LE(0x800,6); header.writeUInt16LE(0,8); header.writeUInt16LE(0,10); header.writeUInt16LE(0,12); header.writeUInt32LE(crc,14); header.writeUInt32LE(data.length,18); header.writeUInt32LE(data.length,22); header.writeUInt16LE(name.length,26);
+    local.push(header,name,data);
+    const ch = Buffer.alloc(46); ch.writeUInt32LE(0x02014b50,0); ch.writeUInt16LE(20,4); ch.writeUInt16LE(20,6); ch.writeUInt16LE(0x800,8); ch.writeUInt16LE(0,10); ch.writeUInt16LE(0,12); ch.writeUInt16LE(0,14); ch.writeUInt32LE(crc,16); ch.writeUInt32LE(data.length,20); ch.writeUInt32LE(data.length,24); ch.writeUInt16LE(name.length,28); ch.writeUInt32LE(offset,42); central.push(ch,name); offset += header.length + name.length + data.length;
+  }
+  const centralSize = central.reduce((n,b)=>n+b.length,0); const end=Buffer.alloc(22); end.writeUInt32LE(0x06054b50,0); end.writeUInt16LE(files.length,8); end.writeUInt16LE(files.length,10); end.writeUInt32LE(centralSize,12); end.writeUInt32LE(offset,16); return Buffer.concat([...local,...central,end]);
+}
+async function downloadGeneratedProject(req,res) {
+  const token=String(req.query?.token||''),messageId=String(req.query?.messageId||''); if(!messageId) throw new Error('UNAUTHORIZED');
+  const original=req.headers.authorization; if(token) req.headers.authorization=`Bearer ${token}`; const user=await requireUser(req); req.headers.authorization=original;
+  const {data:message,error}=await db().from('messages').select('id,content,role').eq('id',messageId).eq('user_id',user.id).eq('role','assistant').single(); if(error||!message) throw new Error('FILE_NOT_FOUND');
+  const files=extractDownloadableFiles(message.content); if(!files.length) throw new Error('FILE_NOT_FOUND'); const body=makeStoreZip(files);
+  res.status(200); res.setHeader('Content-Type','application/zip'); res.setHeader('Content-Length',String(body.length)); res.setHeader('Content-Disposition',`attachment; filename="aiway-project.zip"`); res.setHeader('Cache-Control','private, no-store, max-age=0'); return res.end(body);
+}
 async function downloadGeneratedFile(req, res) {
   const token = String(req.query?.token || '');
   const messageId = String(req.query?.messageId || '');
@@ -75,9 +102,8 @@ Use short headings only when useful, fenced code blocks with a language, and tab
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['GET', 'POST'])) return;
   try {
-    if (req.method === 'GET' && String(req.query?.action || '') === 'download-file') {
-      return await downloadGeneratedFile(req, res);
-    }
+    if (req.method === 'GET' && String(req.query?.action || '') === 'download-file') return await downloadGeneratedFile(req, res);
+    if (req.method === 'GET' && String(req.query?.action || '') === 'download-project') return await downloadGeneratedProject(req, res);
     if (req.method !== 'POST') return res.status(400).json({ error: 'Invalid chat action' });
     const user = await requireUser(req);
     const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [], locale = 'ar' } = req.body || {};
@@ -140,7 +166,7 @@ export default async function handler(req, res) {
       if (error) throw error;
     }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const requestOpenRouter = selectedModelId => fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
@@ -150,7 +176,7 @@ export default async function handler(req, res) {
         'X-OpenRouter-Metadata': 'enabled'
       },
       body: JSON.stringify({
-        model: modelId,
+        model: selectedModelId,
         messages: safeMessages,
         temperature: Number(temperature),
         stream: true,
@@ -158,6 +184,14 @@ export default async function handler(req, res) {
         user: user.id
       })
     });
+    let response = await requestOpenRouter(modelId);
+    let activeModelId = modelId;
+    let fallbackUsed = false;
+    if (!response.ok && purchased) {
+      const catalog = await (await import('./_lib.js')).getAvailableModels();
+      const fallback = catalog.find(candidate => candidate.id !== modelId && candidate.family === model.family) || catalog.find(candidate => candidate.id !== modelId);
+      if (fallback) { activeModelId = fallback.id; response = await requestOpenRouter(activeModelId); fallbackUsed = response.ok; }
+    }
     if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${(await response.text()).slice(0, 250)}`);
 
     res.statusCode = 200;
@@ -188,8 +222,8 @@ export default async function handler(req, res) {
           if (event.id && !generationId) generationId = event.id;
           if (event.model) routedModelId = event.model;
           if (event.openrouter_metadata) routerMetadata = event.openrouter_metadata;
-          if (routedModelId && routedModelId !== modelId) {
-            routeMismatch = { requested: modelId, routed: routedModelId };
+          if (routedModelId && routedModelId !== activeModelId) {
+            routeMismatch = { requested: activeModelId, routed: routedModelId };
           }
           const text = event.choices?.[0]?.delta?.content || '';
           if (text && !routeMismatch) {
@@ -221,7 +255,9 @@ export default async function handler(req, res) {
           ...usage,
           ...charge,
           requestedModelId: modelId,
-          routedModelId: routedModelId || modelId,
+          activeModelId,
+          fallbackUsed,
+          routedModelId: routedModelId || activeModelId,
           generationId: generationId || null,
           routerMetadata
         }
@@ -239,7 +275,9 @@ export default async function handler(req, res) {
       usage,
       chargedTokens: charge.chargedTokens,
       requestedModelId: modelId,
-      routedModelId: routedModelId || modelId,
+      routedModelId: routedModelId || activeModelId,
+      fallbackUsed,
+      activeModelId,
       generationId: generationId || null,
       messageId: usage.savedMessageId || null
     })}\n\n`);
