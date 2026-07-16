@@ -1,5 +1,49 @@
 import { allowMethods, chargeTokens, cleanText, db, handleError, json, requireUser } from './_lib.js';
 
+function safeFilename(value, extension) {
+  const base = String(value || `AiWay-${Date.now()}`)
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 80) || 'AiWay-image';
+  return `${base.replace(/\.(png|jpe?g|webp)$/i, '')}.${extension}`;
+}
+
+async function downloadImage(req, res) {
+  const token = String(req.body?.token || '');
+  const imageId = String(req.body?.imageId || '');
+  if (!token || !imageId) throw new Error('UNAUTHORIZED');
+
+  const originalAuthorization = req.headers.authorization;
+  req.headers.authorization = `Bearer ${token}`;
+  const user = await requireUser(req);
+  req.headers.authorization = originalAuthorization;
+
+  const { data: image, error } = await db()
+    .from('generated_images')
+    .select('id,media_type,thumbnail_data,created_at')
+    .eq('id', imageId)
+    .eq('user_id', user.id)
+    .single();
+  if (error || !image?.thumbnail_data) throw new Error('IMAGE_NOT_FOUND');
+
+  const match = String(image.thumbnail_data).match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
+  if (!match) throw new Error('IMAGE_NOT_FOUND');
+
+  const mediaType = String(image.media_type || match[1] || 'image/jpeg').toLowerCase();
+  const extension = mediaType.includes('png') ? 'png' : mediaType.includes('webp') ? 'webp' : 'jpg';
+  const file = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+  const filename = safeFilename(`AiWay-${image.id}`, extension);
+
+  res.status(200);
+  res.setHeader('Content-Type', mediaType);
+  res.setHeader('Content-Length', String(file.length));
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  return res.end(file);
+}
+
+
 let imageModelCache = { at: 0, model: null };
 async function getImageModel(requestedModelId = '') {
   if (!requestedModelId && imageModelCache.model && Date.now() - imageModelCache.at < 3600000) return imageModelCache.model;
@@ -18,6 +62,7 @@ async function getImageModel(requestedModelId = '') {
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['POST'])) return;
   try {
+    if (req.body?.action === 'download') return await downloadImage(req, res);
     const user = await requireUser(req);
     const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1' } = req.body || {};
     const allowedRatios = new Set(['1:1','16:9','9:16','4:3','3:4','3:2','2:3']);
@@ -50,5 +95,11 @@ export default async function handler(req, res) {
     if (ie) throw ie;
     await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId).eq('user_id', user.id);
     return json(res, 200, { image, chargedTokens });
-  } catch (e) { return handleError(e, res, 'تعذر إنشاء الصورة'); }
+  } catch (e) {
+    if (e.message === 'IMAGE_NOT_FOUND') {
+      res.status(404).setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.end('Image not found');
+    }
+    return handleError(e, res, req.body?.action === 'download' ? 'تعذر تنزيل الصورة' : 'تعذر إنشاء الصورة');
+  }
 }
