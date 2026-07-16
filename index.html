@@ -126,6 +126,45 @@ html,body{min-height:480px}
 .file-card-actions{display:flex;gap:7px;flex-wrap:wrap}.file-preview,.project-download{border:0;border-radius:8px;padding:7px 10px;cursor:pointer;font-weight:800}.file-preview{background:#eef7ff;color:#176fb0}.project-download{background:#eaf8f0;color:#16734f}
 .preview-modal{width:min(1000px,100%);height:min(86dvh,760px);padding:0;overflow:hidden;display:flex;flex-direction:column}.preview-toolbar{display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid var(--line);background:#fff}.preview-toolbar b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.preview-frame{width:100%;flex:1;border:0;background:#fff}.fallback-note{font-size:11px;color:#8a5b00;background:#fff7dc;border:1px solid #f0d994;border-radius:9px;padding:6px 8px;margin-top:7px}
 @media(max-width:700px){.topbar{height:62px;min-height:62px;padding:7px 10px;gap:7px}.credits{padding:8px 9px;font-size:13px}.credits .label{display:none}.export{display:none}.model-wrap{width:auto!important;flex:1;min-width:0}.model-trigger{height:48px!important;border-radius:16px!important}.model-menu{top:68px!important;inset-inline:8px!important;max-height:calc(var(--app-height,100dvh) - 78px)!important;border-radius:20px!important;padding:10px!important}.model-option{padding:11px 9px!important;min-height:62px}.messages{padding:18px 10px 170px}.bubble{max-width:91%}.msg{gap:7px;margin:15px 0}.avatar{width:32px;height:32px;flex-basis:32px;border-radius:10px}.composer-zone{padding-inline:8px;padding-bottom:max(8px,env(safe-area-inset-bottom))}.composer{border-radius:19px}.pill-text{display:none}.file-card{align-items:flex-start}.file-card-actions{width:100%}.file-card-actions button{flex:1}.preview-modal{height:92dvh;border-radius:19px}.model-tabs{padding-bottom:8px}}
+
+
+/* AiWay v19: fully custom categorized model picker and wider mobile header */
+.model-native{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;clip:rect(0 0 0 0)!important;clip-path:inset(50%)!important;overflow:hidden!important}
+.model-trigger{pointer-events:auto!important;z-index:2!important}
+.model-menu{display:none!important}
+.model-menu.open{display:block!important}
+.spacer{min-width:0}
+.model-brand-logo{border:1px solid var(--line);box-shadow:0 4px 12px rgba(63,31,156,.08)}
+.model-brand-logo.provider-openai{background:#101010;color:#fff}.model-brand-logo.provider-google{background:linear-gradient(135deg,#4285f4,#34a853,#fbbc05,#ea4335);color:#fff}.model-brand-logo.provider-anthropic{background:#f3eee7;color:#181818}.model-brand-logo.provider-deepseek{background:#eaf2ff;color:#2f6bff}.model-brand-logo.provider-meta{background:#eef5ff;color:#1769e0}.model-brand-logo.provider-xai{background:#111;color:#fff}.model-brand-logo.provider-mistralai{background:#fff3e6;color:#ff6b00}.model-brand-logo.provider-black-forest-labs{background:#111;color:#fff}.model-brand-logo.provider-recraft{background:#fff0f5;color:#e93975}.model-brand-logo.provider-ideogram{background:#f1efff;color:#4c35c4}
+.model-option{border:1px solid transparent!important;margin:3px 0}.model-option:hover{border-color:var(--line)!important}.model-option.selected{border-color:#d7bce9!important;box-shadow:0 5px 16px rgba(111,45,189,.08)}
+.model-option-check{width:22px;height:22px;border:2px solid #b2a8b8;border-radius:50%;display:grid;place-items:center;flex:0 0 auto}.model-option.selected .model-option-check{border-color:var(--pi);background:var(--pi)}.model-option.selected .model-option-check:after{content:'✓';color:#fff;font-size:12px;font-weight:900}
+.model-menu-empty{padding:28px 16px;text-align:center;color:var(--muted)}
+@media(max-width:700px){
+ .topbar{display:flex!important;align-items:center!important;padding-inline:9px!important;gap:7px!important}
+ .mobile-menu{display:grid!important;flex:0 0 46px;width:46px;height:46px}
+ .model-wrap{flex:1 1 auto!important;width:auto!important;min-width:0!important;max-width:none!important;order:2}
+ .model-trigger{width:100%!important;min-width:0!important;height:48px!important;padding-inline:10px!important}
+ .model-trigger-icon{display:grid!important;flex:0 0 32px!important}
+ .model-trigger-copy{min-width:0!important;flex:1!important}
+ .model-trigger-copy b{font-size:13px!important;max-width:none!important}
+ .credits{flex:0 0 auto!important;order:3;max-width:96px;padding-inline:11px!important}
+ .spacer{display:none!important}
+ .export{display:none!important}
+ .model-menu{position:fixed!important;top:72px!important;bottom:10px!important;inset-inline:8px!important;width:auto!important;max-height:none!important;border-radius:22px!important;padding:10px!important;box-shadow:0 22px 70px rgba(35,16,48,.28)!important}
+ .model-tabs{top:-10px!important;padding:5px 2px 10px!important}
+ .model-option{min-height:68px!important;padding:10px!important;border-radius:15px!important}
+ .model-brand-logo{width:42px!important;height:42px!important;border-radius:13px!important}
+ .model-option-copy b{font-size:14px!important;white-space:normal!important;line-height:1.3!important}
+ .model-option-copy small{font-size:11px!important}
+}
+@media(max-width:390px){
+ .topbar{gap:5px!important;padding-inline:7px!important}
+ .mobile-menu{flex-basis:44px;width:44px;height:44px}
+ .credits{max-width:82px;font-size:12px!important;padding-inline:9px!important}
+ .model-trigger-icon{display:none!important}
+ .model-trigger{padding-inline:9px!important}
+}
+
 </style>
 </head>
 <body>
@@ -148,7 +187,7 @@ html,body{min-height:480px}
     <select class="model-select model-native" id="model" aria-label="Choose AI model">
       <option value="">Loading models...</option>
     </select>
-    <button class="model-trigger" id="modelTrigger" type="button" aria-hidden="true" tabindex="-1">
+    <button class="model-trigger" id="modelTrigger" type="button" aria-expanded="false" aria-haspopup="listbox" tabindex="0">
       <span class="model-trigger-icon" id="modelTriggerIcon"></span>
       <span class="model-trigger-copy"><b id="modelTriggerName">Loading models...</b></span>
       <span class="model-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
@@ -184,7 +223,7 @@ function toggleLanguage(){lang=lang==='en'?'ar':'en';localStorage.setItem('aiway
 async function deleteChat(id){const ok=confirm(lang==='ar'?'هل تريد حذف هذه الدردشة نهائيًا؟':'Delete this chat permanently?');if(!ok)return;await api('/api/conversations?id='+encodeURIComponent(id),{method:'DELETE'});if(current===id){current=null;history=[];render()}await loadChats();toast(lang==='ar'?'تم حذف الدردشة':'Chat deleted')}
 function initPi(){let tries=0;const timer=setInterval(()=>{tries++;if(window.Pi?.init){clearInterval(timer);try{Pi.init({version:'2.0',sandbox:false});piReady=true;$('profileState').textContent=auth?(lang==='ar'?'متصل بحساب Pi':'Connected with Pi'):(lang==='ar'?'جاهز لتسجيل الدخول':'Ready to sign in')}catch(e){console.error(e)}}else if(tries>30){clearInterval(timer);$('profileState').textContent=lang==='ar'?'افتح الموقع داخل Pi Browser':'Open this site in Pi Browser'}},150)}
 function modelProviderKey(m){return String(m?.provider||m?.family||m?.id?.split('/')[0]||'ai').toLowerCase()}
-function modelLogo(m){const key=modelProviderKey(m),label={openai:'OAI',google:'G',anthropic:'A','deepseek':'DS',meta:'M',xai:'xAI',mistralai:'MI','black-forest-labs':'FLUX','bytedance-seed':'BD',recraft:'R',ideogram:'ID'}[key]||key.slice(0,2).toUpperCase();return `<span class="model-brand-logo" title="${esc(m.providerLabel||m.familyLabel||key)}">${esc(label)}</span>`}
+function modelLogo(m){const key=modelProviderKey(m),label={openai:'◎',google:'G',anthropic:'A','deepseek':'DS',meta:'∞',xai:'𝕏',mistralai:'M','black-forest-labs':'BFL','bytedance-seed':'BD',recraft:'R',ideogram:'ID'}[key]||key.slice(0,2).toUpperCase();const safeKey=key.replace(/[^a-z0-9-]/g,'');return `<span class="model-brand-logo provider-${safeKey}" aria-hidden="true" title="${esc(m.providerLabel||m.familyLabel||key)}">${esc(label)}</span>`}
 function modelScore(m){const n=String(m.name||m.id).toLowerCase();let smart=0,fast=0,cheap=0;if(/opus|o3|o4|pro|max|r1|sonnet|gpt-5|gemini-2\.5/.test(n))smart+=5;if(/flash|mini|nano|haiku|fast|lite/.test(n))fast+=5;if(m.trial||/free/.test(n))cheap+=10;if(/mini|nano|flash|lite|haiku/.test(n))cheap+=4;smart+=Math.min(3,Number(m.contextLength||0)/100000);return {smart,fast,cheap}}
 function renderModelSelect(selected=''){
   const select=$('model'),chatModels=window.aiwayModels||[],imageModels=window.aiwayImageModels||[],all=[...chatModels,...imageModels];
@@ -199,7 +238,7 @@ function renderModelMenu(filter='all'){
  if(['cheap','smart','fast'].includes(filter))items=[...all.filter(m=>m.type!=='image')].sort((a,b)=>modelScore(b)[filter]-modelScore(a)[filter]);
  const labels={all:I18N[lang].modelsAll,chat:I18N[lang].modelsChat,images:I18N[lang].modelsImages,cheap:I18N[lang].modelsCheap,smart:I18N[lang].modelsSmart,fast:I18N[lang].modelsFast};
  const tabs=['all','chat','images','cheap','smart','fast'].map(k=>`<button type="button" class="model-tab ${k===filter?'active':''}" data-model-filter="${k}">${labels[k]}</button>`).join('');
- menu.innerHTML=`<div class="model-tabs">${tabs}</div>`+items.map(m=>{const score=modelScore(m),badges=[m.trial?(lang==='ar'?'مجاني':'Free'):'',m.type==='image'?(lang==='ar'?'صور':'Images'):'',score.smart>=5?(lang==='ar'?'ذكي':'Smart'):'',score.fast>=5?(lang==='ar'?'سريع':'Fast'):''].filter(Boolean);return `<button type="button" class="model-option ${m.id===$('model').value?'selected':''}" data-model-id="${esc(m.id)}" ${m.locked?'disabled':''}>${modelLogo(m)}<span class="model-option-copy"><b>${esc(shortModelName(m.shortName||m.name||m.id))}</b><small>${esc(m.providerLabel||m.familyLabel||m.provider||'AI')}</small><span class="model-badges">${badges.map(x=>`<i class="model-badge">${x}</i>`).join('')}</span></span><span class="model-lock">${m.locked?'🔒':''}</span></button>`}).join('');
+ menu.innerHTML=`<div class="model-tabs">${tabs}</div>`+items.map(m=>{const score=modelScore(m),badges=[m.trial?(lang==='ar'?'مجاني':'Free'):'',m.type==='image'?(lang==='ar'?'صور':'Images'):'',score.smart>=5?(lang==='ar'?'ذكي':'Smart'):'',score.fast>=5?(lang==='ar'?'سريع':'Fast'):''].filter(Boolean);return `<button type="button" class="model-option ${m.id===$('model').value?'selected':''}" data-model-id="${esc(m.id)}" ${m.locked?'disabled':''}>${modelLogo(m)}<span class="model-option-copy"><b>${esc(shortModelName(m.shortName||m.name||m.id))}</b><small>${esc(m.providerLabel||m.familyLabel||m.provider||'AI')}</small><span class="model-badges">${badges.map(x=>`<i class="model-badge">${x}</i>`).join('')}</span></span><span class="model-lock">${m.locked?'🔒':''}</span><span class="model-option-check" aria-hidden="true"></span></button>`}).join('');
  menu.querySelectorAll('[data-model-filter]').forEach(b=>b.onclick=e=>{e.stopPropagation();renderModelMenu(b.dataset.modelFilter)});menu.querySelectorAll('[data-model-id]').forEach(b=>b.onclick=()=>{selectModel(b.dataset.modelId);closeModelMenu()});
 }
 function openModelMenu(){const menu=$('modelMenu'),trigger=$('modelTrigger');renderModelMenu('all');menu.classList.add('open');trigger.classList.add('open');trigger.setAttribute('aria-expanded','true')}
