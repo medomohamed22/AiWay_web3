@@ -1,4 +1,4 @@
-import { allowMethods, chargeTokens, cleanText, db, handleError, json, MARKUP, requireUser, TOKEN_USD } from './_lib.js';
+import { allowMethods, chargeTokens, cleanText, db, handleError, json, requireUser } from './_lib.js';
 
 let imageModelCache = { at: 0, model: null };
 async function getImageModel(requestedModelId = '') {
@@ -37,15 +37,16 @@ export default async function handler(req, res) {
     if (!item?.b64_json) throw new Error('IMAGE_GENERATION_FAILED');
     const mediaType = item.media_type || 'image/jpeg';
     const thumbnailData = `data:${mediaType};base64,${item.b64_json}`;
-    const providerUsd = Number(payload.usage?.cost || 0.04);
-    const chargedTokens = Math.max(1, Math.ceil((providerUsd * MARKUP) / TOKEN_USD));
+    const imageUsage = payload.usage?.cost ? payload.usage : { ...(payload.usage || {}), cost: 0.04 };
+    const charge = chargeTokens({}, imageUsage, false);
+    const { providerUsd, chargedTokens } = charge;
     const { error: ce } = await supabase.rpc('consume_ai_tokens', { p_user_id: user.id, p_amount: chargedTokens });
     if (ce) throw new Error('INSUFFICIENT_TOKENS');
     const { error: ue } = await supabase.from('messages').insert({ conversation_id: conversationId, user_id: user.id, role: 'user', content: cleanText(prompt, 4000), token_usage: { image_request: true, reference_image: Boolean(referenceImage) } });
     if (ue) throw ue;
-    const { data: message, error: me } = await supabase.from('messages').insert({ conversation_id: conversationId, user_id: user.id, role: 'assistant', content: 'تم إنشاء الصورة المطلوبة.', model_id: model.id, token_usage: { ...payload.usage, chargedTokens, type: 'image' } }).select('id').single();
+    const { data: message, error: me } = await supabase.from('messages').insert({ conversation_id: conversationId, user_id: user.id, role: 'assistant', content: 'تم إنشاء الصورة المطلوبة.', model_id: model.id, token_usage: { ...payload.usage, ...charge, type: 'image' } }).select('id').single();
     if (me) throw me;
-    const { data: image, error: ie } = await supabase.from('generated_images').insert({ message_id: message.id, conversation_id: conversationId, user_id: user.id, model_id: model.id, prompt: cleanText(prompt, 4000), media_type: mediaType, thumbnail_data: thumbnailData, width: safeAspectRatio === '9:16' ? 512 : safeAspectRatio === '3:4' ? 768 : safeAspectRatio === '2:3' ? 768 : safeAspectRatio === '16:9' ? 1024 : safeAspectRatio === '4:3' ? 1024 : safeAspectRatio === '3:2' ? 1024 : 512, height: safeAspectRatio === '16:9' ? 576 : safeAspectRatio === '4:3' ? 768 : safeAspectRatio === '3:2' ? 683 : safeAspectRatio === '9:16' ? 910 : safeAspectRatio === '3:4' ? 1024 : safeAspectRatio === '2:3' ? 1152 : 512, token_usage: { ...payload.usage, chargedTokens, aspectRatio: safeAspectRatio } }).select('*').single();
+    const { data: image, error: ie } = await supabase.from('generated_images').insert({ message_id: message.id, conversation_id: conversationId, user_id: user.id, model_id: model.id, prompt: cleanText(prompt, 4000), media_type: mediaType, thumbnail_data: thumbnailData, width: safeAspectRatio === '9:16' ? 512 : safeAspectRatio === '3:4' ? 768 : safeAspectRatio === '2:3' ? 768 : safeAspectRatio === '16:9' ? 1024 : safeAspectRatio === '4:3' ? 1024 : safeAspectRatio === '3:2' ? 1024 : 512, height: safeAspectRatio === '16:9' ? 576 : safeAspectRatio === '4:3' ? 768 : safeAspectRatio === '3:2' ? 683 : safeAspectRatio === '9:16' ? 910 : safeAspectRatio === '3:4' ? 1024 : safeAspectRatio === '2:3' ? 1152 : 512, token_usage: { ...payload.usage, ...charge, aspectRatio: safeAspectRatio } }).select('*').single();
     if (ie) throw ie;
     await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId).eq('user_id', user.id);
     return json(res, 200, { image, chargedTokens });

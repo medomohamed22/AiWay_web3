@@ -111,15 +111,18 @@ export function handleError(error, res, fallback = 'Server error') {
   return json(res, 500, { error: fallback });
 }
 
+// كل AiWay Token يمثل 0.00001 دولار من تكلفة المزود الفعلية.
+// سعر البيع يضيف 35% فوق تكلفة OpenRouter عند إنشاء الباقة، وليس وقت الاستهلاك.
 export const TOKEN_USD = 0.00001;
 export const MARKUP = 1.35;
 export const TRIAL_MESSAGE_LIMIT = 5;
 export const TRIAL_TOKENS = 1500;
 export const TRIAL_MODEL_FALLBACK = 'deepseek/deepseek-chat-v3-0324';
+const tokensForUsd = usd => Math.floor(Number(usd) / MARKUP / TOKEN_USD);
 export const PACKAGES = {
-  starter: { usd: 1, tokens: 100000 },
-  plus: { usd: 5, tokens: 550000 },
-  pro: { usd: 10, tokens: 1200000 }
+  starter: { usd: 1, tokens: tokensForUsd(1) },
+  plus: { usd: 5, tokens: tokensForUsd(5) },
+  pro: { usd: 10, tokens: tokensForUsd(10) }
 };
 
 const FAMILY_CONFIG = [
@@ -213,15 +216,19 @@ export async function getModel(modelId) {
 export function chargeTokens(price, usage = {}, webSearch = false) {
   const input = Number(usage.prompt_tokens || usage.input_tokens || 0);
   const output = Number(usage.completion_tokens || usage.output_tokens || 0);
-  const reportedCost = Number(usage.cost);
-  const fallbackCost = input * Number(price?.prompt || 0) + output * Number(price?.completion || 0) + (webSearch ? Number(price?.webSearch || 0.01) : 0);
-  const providerUsd = Number.isFinite(reportedCost) && reportedCost > 0 ? reportedCost : fallbackCost;
+  const reportedCost = Number(usage.cost || 0);
+  const webSearchFallbackUsd = webSearch ? Number(price?.webSearch || 0.01) : 0;
+  const fallbackCost = input * Number(price?.prompt || 0) + output * Number(price?.completion || 0) + webSearchFallbackUsd;
+  const hasReportedCost = Number.isFinite(reportedCost) && reportedCost > 0;
+  const providerUsd = hasReportedCost ? reportedCost : fallbackCost;
   return {
     input,
     output,
     providerUsd,
+    costSource: hasReportedCost ? 'openrouter_usage' : 'catalog_estimate',
+    tokenUsd: TOKEN_USD,
     markup: MARKUP,
-    chargedTokens: Math.max(1, Math.ceil((providerUsd * MARKUP) / TOKEN_USD))
+    chargedTokens: Math.max(1, Math.ceil(providerUsd / TOKEN_USD))
   };
 }
 
