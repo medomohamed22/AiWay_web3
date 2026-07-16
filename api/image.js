@@ -210,8 +210,13 @@ export default async function handler(req, res) {
       // OpenRouter account credit is an infrastructure issue, not an AiWay user-token issue.
       // Keep the provider details in server logs, but return a safe, actionable app message.
       if (r.status === 402 || /insufficient credits|add more.*credits/i.test(providerMessage)) {
-        console.error('OpenRouter image credit exhausted:', providerMessage || `HTTP ${r.status}`);
-        throw new Error('OPENROUTER_CREDITS_EXHAUSTED');
+        // Return a controlled JSON response instead of throwing. Throwing here makes
+        // Vercel print a full stack trace even though this is an expected provider-state error.
+        console.warn('OpenRouter image credits unavailable:', providerMessage || `HTTP ${r.status}`);
+        return json(res, 503, {
+          error: 'رصيد خدمة إنشاء الصور غير كافٍ حاليًا. اشحن رصيدًا إضافيًا ثم حاول مرة أخرى.',
+          code: 'OPENROUTER_CREDITS_EXHAUSTED'
+        });
       }
       console.error('OpenRouter image generation failed:', r.status, providerMessage || payload);
       throw new Error(providerMessage || 'IMAGE_GENERATION_FAILED');
