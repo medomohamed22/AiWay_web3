@@ -100,7 +100,8 @@ export function handleError(error, res, fallback = 'Server error') {
   console.error(error);
   const messages = {
     UNAUTHORIZED: [401, 'Sign in with Pi first'],
-    INSUFFICIENT_TOKENS: [402, 'رصيد AiWay Tokens غير كافٍ'],
+    INSUFFICIENT_TOKENS: [402, 'رصيدك لا يكفي لتنفيذ هذا الطلب. اشحن رصيدًا إضافيًا ثم حاول مرة أخرى.'],
+    OPENROUTER_CREDITS_EXHAUSTED: [503, 'خدمة إنشاء الصور غير متاحة مؤقتًا بسبب نفاد رصيد مزود الخدمة. تواصل مع إدارة AiWay.'],
     MODEL_LOCKED: [403, 'هذا النموذج يُفتح بعد أول عملية شراء'],
     MODEL_UNAVAILABLE: [400, 'النموذج لم يعد متاحًا. حدّث قائمة النماذج واختر نموذجًا آخر'],
     MODEL_ROUTE_MISMATCH: [502, 'OpenRouter أعاد نموذجًا مختلفًا عن النموذج المختار، لذلك تم إيقاف الطلب دون اعتماده'],

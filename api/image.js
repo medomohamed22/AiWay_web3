@@ -92,6 +92,37 @@ async function persistImage(req, res) {
   return json(res, 200, { saved: true, storagePath });
 }
 
+
+function estimateImageCharge(model, resolution = '', hasReferenceImage = false) {
+  const pricing = model?.pricing || {};
+  const numeric = key => {
+    const value = Number(pricing?.[key]);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  };
+
+  // Prefer the fixed per-request price exposed by OpenRouter. Some image-model
+  // records expose a per-image value instead, so use it as a secondary signal.
+  let providerUsd = numeric('request') || numeric('image') || numeric('image_output');
+
+  // Safe fallback when the catalog does not expose a fixed image price.
+  // Higher resolutions are intentionally estimated more conservatively so an
+  // expensive request is rejected before the provider is called.
+  if (!providerUsd) {
+    const normalized = String(resolution || '').toUpperCase();
+    providerUsd = normalized === '4K' ? 0.16 : normalized === '2K' ? 0.08 : 0.04;
+  }
+
+  // Reference-image jobs can cost more on some providers. Keep a small buffer,
+  // and also add a general 15% guard against routing/provider price variation.
+  if (hasReferenceImage) providerUsd *= 1.15;
+  providerUsd *= 1.15;
+
+  return {
+    providerUsd,
+    chargedTokens: Math.max(1, Math.ceil(providerUsd / 0.00001))
+  };
+}
+
 let imageModelCache = { at: 0, model: null };
 async function getImageModel(requestedModelId = '') {
   if (!requestedModelId && imageModelCache.model && Date.now() - imageModelCache.at < 3600000) return imageModelCache.model;
@@ -151,14 +182,40 @@ export default async function handler(req, res) {
     if (selectedAspectRatio) body.aspect_ratio = selectedAspectRatio;
     if (supports('n')) body.n = 1;
 
-    if (typeof referenceImage === 'string' && referenceImage.startsWith('data:image/')) {
+    const hasReferenceImage = typeof referenceImage === 'string' && referenceImage.startsWith('data:image/');
+    if (hasReferenceImage) {
       const acceptsImageInput = model.architecture?.input_modalities?.includes('image');
       if (!acceptsImageInput) return json(res, 400, { error: 'هذا النموذج لا يدعم صورة مرجعية. اختر نموذجًا يدعم إدخال الصور.' });
       body.input_references = [{ type: 'image_url', image_url: { url: referenceImage } }];
     }
+
+    // Reject expensive requests before contacting OpenRouter. This prevents the
+    // provider cost from being incurred when the user's AiWay balance cannot
+    // cover the selected model/resolution.
+    const estimatedCharge = estimateImageCharge(model, selectedResolution, hasReferenceImage);
+    const availableTokens = Math.max(0, Number(profile?.ai_tokens || 0));
+    if (availableTokens < estimatedCharge.chargedTokens) {
+      return json(res, 402, {
+        error: 'رصيدك لا يكفي لتنفيذ هذا الطلب. اشحن رصيدًا إضافيًا ثم حاول مرة أخرى.',
+        code: 'INSUFFICIENT_TOKENS',
+        availableTokens,
+        estimatedTokens: estimatedCharge.chargedTokens
+      });
+    }
+
     const r = await fetch('https://openrouter.ai/api/v1/images', { method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json', 'X-OpenRouter-Title': 'AiWay' }, body: JSON.stringify(body) });
     const payload = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(payload?.error?.message || 'IMAGE_GENERATION_FAILED');
+    if (!r.ok) {
+      const providerMessage = String(payload?.error?.message || '');
+      // OpenRouter account credit is an infrastructure issue, not an AiWay user-token issue.
+      // Keep the provider details in server logs, but return a safe, actionable app message.
+      if (r.status === 402 || /insufficient credits|add more.*credits/i.test(providerMessage)) {
+        console.error('OpenRouter image credit exhausted:', providerMessage || `HTTP ${r.status}`);
+        throw new Error('OPENROUTER_CREDITS_EXHAUSTED');
+      }
+      console.error('OpenRouter image generation failed:', r.status, providerMessage || payload);
+      throw new Error(providerMessage || 'IMAGE_GENERATION_FAILED');
+    }
     const item = payload.data?.[0];
     if (!item?.b64_json) throw new Error('IMAGE_GENERATION_FAILED');
     const mediaType = item.media_type || 'image/jpeg';
