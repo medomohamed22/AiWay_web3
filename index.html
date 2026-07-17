@@ -237,7 +237,7 @@ function handleActionableError(error){if(['INSUFFICIENT_TOKENS','INSUFFICIENT_TO
 async function api(url,opt={}){const request={...opt};let requestUrl=url;const method=String(request.method||'GET').toUpperCase();if(method==='GET'){const join=requestUrl.includes('?')?'&':'?';requestUrl+=`${join}locale=${encodeURIComponent(lang)}`}else if(typeof request.body==='string'){try{const body=JSON.parse(request.body);if(body&&typeof body==='object'&&!Array.isArray(body)&&!body.locale)request.body=JSON.stringify({...body,locale:lang})}catch{}}request.headers={...(request.headers||{}),'Content-Type':'application/json','X-UI-Language':lang,...(auth?.token?{Authorization:`Bearer ${auth.token}`}:{})};let r;try{r=await fetch(requestUrl,request)}catch(error){throw friendlyClientError(error,lang==='ar'?'تعذر الاتصال بالخدمة. حاول مرة أخرى.':'Could not connect to the service. Try again.')}const d=await r.json().catch(()=>({}));if(!r.ok){if(r.status===401&&auth)logout(false);throw makeUiError(d.error||statusMessage(r.status),d.code||`HTTP_${r.status}`,{status:r.status,availableTokens:d.availableTokens,requiredTokens:d.requiredTokens,shortfall:d.shortfall})}return d}
 const PI_SIGNIN_CLIENT_ID='JLTj5kJcLyO9lXJk2fXpv04Zm53BNBmiyKpznehMa4M';
 function piSigninRedirectUri(){return `${location.origin}/`}
-const I18N={en:{copy:'Copy',redo:'Regenerate',thinking:'Thinking',analyzing:'Analyzing your question',searching:'Searching the web',writing:'Writing the answer',tokensUsed:'tokens charged',modelUsed:'Model',downloadFile:'Download file',previewFile:'Preview',downloadProject:'Download ZIP',modelsAll:'All',modelsChat:'Chat',modelsImages:'Images',modelsCheap:'Cheapest',modelsSmart:'Smartest',modelsFast:'Fastest',modelsFree:'Free',fallbackUsed:'Fallback model used',tagline:'AI for everyone',newChat:'New chat',chats:'Chats',guest:'Guest',signPi:'Sign in with Pi',login:'Sign in',connected:'Connected',balance:'Balance',webSearch:'Web search',buyBalance:'Buy balance with Pi',choosePack:'Choose a package. Pi is the primary payment currency.',allModels:'All models unlocked',trial:n=>`Free trial: ${n} messages left`,piBrowserRequired:'Payments are available through Pi Browser.',piSigninTitle:'Sign in with Pi',piSigninText:'You will be taken to Pi to approve your account, then returned to AiWay and signed in automatically.',piSigninContinue:'Continue to Pi Sign-in',piSigninCancel:'Cancel',piSigninNote:'AiWay never asks for your Pi password. Authentication is handled only by Pi.'},ar:{copy:'نسخ',redo:'إعادة',thinking:'يفكر',analyzing:'يحلل السؤال',searching:'يبحث في الويب',writing:'يكتب الإجابة',tokensUsed:'توكن مخصوم',modelUsed:'النموذج',downloadFile:'تنزيل الملف',previewFile:'معاينة',downloadProject:'تنزيل ZIP',modelsAll:'الكل',modelsChat:'شات',modelsImages:'صور',modelsCheap:'الأرخص',modelsSmart:'الأذكى',modelsFast:'الأسرع',modelsFree:'المجاني',fallbackUsed:'تم استخدام نموذج احتياطي',tagline:'ذكاء اصطناعي للجميع',newChat:'محادثة جديدة',chats:'المحادثات',guest:'زائر',signPi:'سجّل الدخول بحساب Pi',login:'دخول',connected:'متصل',balance:'الرصيد',webSearch:'بحث الويب',buyBalance:'شراء رصيد بعملة Pi',choosePack:'اختر الباقة المناسبة. عملة Pi هي عملة الدفع الأساسية.',allModels:'جميع النماذج مفتوحة',trial:n=>`تجربة مجانية: ${n} رسائل متبقية`,piBrowserRequired:'الدفع متاح من خلال متصفح Pi.',piSigninTitle:'تسجيل الدخول بحساب Pi',piSigninText:'سيتم نقلك إلى Pi لتأكيد حسابك، ثم ستعود إلى AiWay وتجد نفسك مسجلًا تلقائيًا.',piSigninContinue:'الانتقال وتسجيل الدخول',piSigninCancel:'إلغاء',piSigninNote:'لن يطلب منك AiWay كلمة مرور Pi. تتم المصادقة من خلال Pi فقط.'}};
+const I18N={en:{copy:'Copy',redo:'Regenerate',thinking:'Thinking',analyzing:'Analyzing your question',searching:'Searching the web',writing:'Writing the answer',tokensUsed:'tokens charged',modelUsed:'Model',downloadFile:'Download file',previewFile:'Preview',downloadProject:'Download ZIP',modelsAll:'All',modelsChat:'Chat',modelsImages:'Images',modelsCheap:'Cheapest',modelsSmart:'Smartest',modelsFast:'Fastest',modelsFree:'Free',fallbackUsed:'Fallback model used',tagline:'AI for everyone',newChat:'New chat',chats:'Chats',guest:'Guest',signPi:'Sign in with Pi',login:'Sign in',connected:'Connected',balance:'Balance',webSearch:'Web search',buyBalance:'Buy balance with Pi',choosePack:'Choose a package. Pi is the primary payment currency.',allModels:'All models unlocked',trial:n=>`Free trial: ${n} messages left`,piBrowserRequired:'Payments are available through Pi Browser.',piSigninTitle:'Sign in with Pi',piSigninText:'Keep this browser page open. You will move to Pi Browser to approve your account; when you return here, AiWay will sign in automatically.',piSigninContinue:'Continue to Pi Sign-in',piSigninCancel:'Cancel',piSigninNote:'AiWay never asks for your Pi password. After approval, return manually to this browser tab; the session will be completed automatically.'},ar:{copy:'نسخ',redo:'إعادة',thinking:'يفكر',analyzing:'يحلل السؤال',searching:'يبحث في الويب',writing:'يكتب الإجابة',tokensUsed:'توكن مخصوم',modelUsed:'النموذج',downloadFile:'تنزيل الملف',previewFile:'معاينة',downloadProject:'تنزيل ZIP',modelsAll:'الكل',modelsChat:'شات',modelsImages:'صور',modelsCheap:'الأرخص',modelsSmart:'الأذكى',modelsFast:'الأسرع',modelsFree:'المجاني',fallbackUsed:'تم استخدام نموذج احتياطي',tagline:'ذكاء اصطناعي للجميع',newChat:'محادثة جديدة',chats:'المحادثات',guest:'زائر',signPi:'سجّل الدخول بحساب Pi',login:'دخول',connected:'متصل',balance:'الرصيد',webSearch:'بحث الويب',buyBalance:'شراء رصيد بعملة Pi',choosePack:'اختر الباقة المناسبة. عملة Pi هي عملة الدفع الأساسية.',allModels:'جميع النماذج مفتوحة',trial:n=>`تجربة مجانية: ${n} رسائل متبقية`,piBrowserRequired:'الدفع متاح من خلال متصفح Pi.',piSigninTitle:'تسجيل الدخول بحساب Pi',piSigninText:'اترك صفحة المتصفح هذه مفتوحة. ستنتقل إلى Pi Browser لتأكيد حسابك، وعندما ترجع هنا ستجد AiWay مسجلًا تلقائيًا.',piSigninContinue:'الانتقال وتسجيل الدخول',piSigninCancel:'إلغاء',piSigninNote:'لن يطلب منك AiWay كلمة مرور Pi. بعد الموافقة ارجع يدويًا إلى تبويب المتصفح الأصلي، وسيكتمل الدخول تلقائيًا.'}};
 function applyLanguage(){document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';document.querySelector('[data-legal="privacy"]')&&(document.querySelector('[data-legal="privacy"]').textContent=lang==='ar'?'سياسة الخصوصية':'Privacy Policy');document.querySelector('[data-legal="terms"]')&&(document.querySelector('[data-legal="terms"]').textContent=lang==='ar'?'شروط الاستخدام':'Terms of Service');document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=I18N[lang][el.dataset.i18n]||el.textContent);$('languageLabel').textContent=lang==='en'?'العربية':'English';$('prompt').placeholder=lang==='ar'?'اسأل أي شيء...':'Ask anything...';updatePiSigninModal();renderPackages();if(window.aiwayModels)renderModelSelect($('model').value);if(auth){refreshMe().catch(()=>{});loadChats().catch(()=>{})}else{$('profileName').textContent=I18N[lang].guest;$('profileState').textContent=I18N[lang].signPi;$('loginBtn').querySelector('span:last-child').textContent=I18N[lang].login}render()}
 function toggleLanguage(){lang=lang==='en'?'ar':'en';storageSet('aiway_lang',lang);applyLanguage();render()}
 async function deleteChat(id){const ok=confirm(lang==='ar'?'هل تريد حذف هذه الدردشة نهائيًا؟':'Delete this chat permanently?');if(!ok)return;try{await api('/api/conversations?id='+encodeURIComponent(id),{method:'DELETE'});if(current===id){current=null;history=[];render()}await loadChats();toast(lang==='ar'?'تم حذف الدردشة':'Chat deleted')}catch(e){toast(friendlyClientError(e,lang==='ar'?'لم نتمكن من حذف الدردشة. حاول مرة أخرى.':'We could not delete the chat. Please try again.').message)}}
@@ -262,42 +262,75 @@ function updatePiSigninModal(){
 }
 function openPiSigninModal(){updatePiSigninModal();$('piSigninModal').classList.add('open')}
 function closePiSigninModal(){$('piSigninModal').classList.remove('open')}
-function randomOAuthState(){
-  if(globalThis.crypto?.randomUUID)return crypto.randomUUID();
-  const bytes=new Uint8Array(24);crypto.getRandomValues(bytes);return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+const PI_BRIDGE_STORAGE_KEY='pi_login_bridge';
+let piBridgePollTimer=null;
+function savePiBridge(value){
+  if(value)storageSet(PI_BRIDGE_STORAGE_KEY,JSON.stringify(value));else storageRemove(PI_BRIDGE_STORAGE_KEY);
 }
-function startExternalPiSignIn(){
-  const state=randomOAuthState();
-  sessionStorage.setItem('pi_oauth_state',state);
-  sessionStorage.setItem('pi_oauth_started_at',String(Date.now()));
-  const redirectUri=piSigninRedirectUri();
+function readPiBridge(){
+  try{return JSON.parse(storageGet(PI_BRIDGE_STORAGE_KEY)||'null')}catch{return null}
+}
+function showPiBridgeCompleted(username=''){
   closePiSigninModal();
-  if(window.Pi?.signIn){
-    try{Pi.signIn({clientId:PI_SIGNIN_CLIENT_ID,redirectUri,scopes:['username'],state});return}catch(error){console.warn('Pi.signIn fallback:',error)}
-  }
-  const url=new URL('https://accounts.pinet.com/oauth/authorize');
-  url.searchParams.set('response_type','token');
-  url.searchParams.set('client_id',PI_SIGNIN_CLIENT_ID);
-  url.searchParams.set('redirect_uri',redirectUri);
-  url.searchParams.set('scope','username');
-  url.searchParams.set('state',state);
-  location.assign(url.toString());
+  const title=lang==='ar'?'تم تأكيد حساب Pi':'Pi account confirmed';
+  const message=lang==='ar'
+    ?`تم تأكيد ${username?'@'+username:'حسابك'} بنجاح. ارجع الآن إلى المتصفح الأصلي؛ ستجد AiWay مسجلًا تلقائيًا.`
+    :`${username?'@'+username:'Your account'} was confirmed. Return to the original browser; AiWay will sign in automatically.`;
+  document.body.innerHTML=`<main style="min-height:100vh;display:grid;place-items:center;padding:24px;font-family:system-ui;background:#faf7fc;color:#211729;text-align:center"><section style="width:min(460px,100%);background:#fff;border:1px solid #eadff0;border-radius:28px;padding:34px;box-shadow:0 20px 60px #4d1d7020"><img src="/aiway-logo.png" alt="AiWay" style="width:76px;height:76px;border-radius:22px"><h1 style="font-size:26px;margin:18px 0 10px">${esc(title)}</h1><p style="line-height:1.8;color:#6f6475;margin:0">${esc(message)}</p><div style="margin-top:18px;font-size:42px">✓</div></section></main>`;
+}
+async function startExternalPiSignIn(){
+  const button=$('continuePiSignin');
+  if(button)button.disabled=true;
+  try{
+    const bridge=await api('/api/pi-login',{method:'POST',body:JSON.stringify({action:'bridge-start'})});
+    savePiBridge({requestId:bridge.requestId,pollToken:bridge.pollToken,expiresAt:bridge.expiresAt});
+    startPiBridgePolling();
+    const redirectUri=piSigninRedirectUri();
+    closePiSigninModal();
+    if(window.Pi?.signIn){
+      try{Pi.signIn({clientId:PI_SIGNIN_CLIENT_ID,redirectUri,scopes:['username'],state:bridge.state});return}catch(error){console.warn('Pi.signIn fallback:',error)}
+    }
+    const url=new URL('https://accounts.pinet.com/oauth/authorize');
+    url.searchParams.set('response_type','token');
+    url.searchParams.set('client_id',PI_SIGNIN_CLIENT_ID);
+    url.searchParams.set('redirect_uri',redirectUri);
+    url.searchParams.set('scope','username');
+    url.searchParams.set('state',bridge.state);
+    location.assign(url.toString());
+  }catch(error){
+    console.error(error);toast(friendlyClientError(error,lang==='ar'?'تعذر بدء تسجيل الدخول بحساب Pi. حاول مرة أخرى.':'Could not start Pi sign-in. Try again.').message);
+  }finally{if(button)button.disabled=false}
 }
 async function finishExternalPiSignIn(){
   const params=new URLSearchParams(location.hash.slice(1));
   if(!params.has('access_token')&&!params.has('error'))return false;
-  const expected=sessionStorage.getItem('pi_oauth_state');
-  sessionStorage.removeItem('pi_oauth_state');sessionStorage.removeItem('pi_oauth_started_at');
-  const returned=params.get('state');
-  history.replaceState(null,'',location.pathname+location.search);
-  if(!expected||!returned||returned!==expected)throw makeUiError(lang==='ar'?'تعذر التحقق من جلسة تسجيل الدخول. ابدأ تسجيل الدخول مرة أخرى.':'The sign-in session could not be verified. Start sign-in again.','PI_OAUTH_STATE_MISMATCH');
+  const returned=params.get('state')||'';
   const oauthError=params.get('error');
-  if(oauthError)throw makeUiError(lang==='ar'?'تم إلغاء تسجيل الدخول أو انتهت صلاحيته. حاول مرة أخرى.':'Pi sign-in was cancelled or expired. Try again.','PI_LOGIN_FAILED');
   const accessToken=params.get('access_token');
-  if(!accessToken)throw makeUiError(lang==='ar'?'لم يصل رمز تسجيل الدخول من Pi. حاول مرة أخرى.':'Pi did not return a sign-in token. Try again.','PI_LOGIN_FAILED');
-  const data=await api('/api/pi-login',{method:'POST',body:JSON.stringify({accessToken})});
-  auth=data;storageSet('pi_ai_auth',JSON.stringify(auth));startSupportPolling();
+  history.replaceState(null,'',location.pathname+location.search);
+  if(oauthError)throw makeUiError(lang==='ar'?'تم إلغاء تسجيل الدخول أو انتهت صلاحيته. حاول مرة أخرى.':'Pi sign-in was cancelled or expired. Try again.','PI_LOGIN_FAILED');
+  if(!accessToken||!returned)throw makeUiError(lang==='ar'?'لم تصل بيانات تسجيل الدخول كاملة من Pi. حاول مرة أخرى.':'Pi did not return complete sign-in data. Try again.','PI_LOGIN_FAILED');
+  const data=await api('/api/pi-login',{method:'POST',body:JSON.stringify({action:'bridge-complete',accessToken,state:returned})});
+  showPiBridgeCompleted(data.username||'');
   return true;
+}
+async function pollPiBridgeOnce(bridge){
+  const status=await api('/api/pi-login',{method:'POST',body:JSON.stringify({action:'bridge-status',requestId:bridge.requestId,pollToken:bridge.pollToken})});
+  if(status.status!=='completed'||!status.exchangeCode)return false;
+  const data=await api('/api/pi-login',{method:'POST',body:JSON.stringify({action:'bridge-exchange',requestId:bridge.requestId,pollToken:bridge.pollToken,exchangeCode:status.exchangeCode})});
+  auth=data;storageSet('pi_ai_auth',JSON.stringify(auth));savePiBridge(null);
+  if(piBridgePollTimer){clearInterval(piBridgePollTimer);piBridgePollTimer=null}
+  await Promise.all([refreshMe(),loadModels(),loadChats()]);startSupportPolling();render();
+  toast(lang==='ar'?'تم تسجيل الدخول بحساب Pi بنجاح':'Signed in with Pi successfully');
+  return true;
+}
+function startPiBridgePolling(){
+  const bridge=readPiBridge();
+  if(!bridge||auth)return;
+  if(new Date(bridge.expiresAt||0).getTime()<=Date.now()){savePiBridge(null);return}
+  if(piBridgePollTimer)clearInterval(piBridgePollTimer);
+  const run=async()=>{try{await pollPiBridgeOnce(bridge)}catch(error){if(error?.code==='PI_LOGIN_BRIDGE_EXPIRED'||error?.status===410){savePiBridge(null);clearInterval(piBridgePollTimer);piBridgePollTimer=null;toast(lang==='ar'?'انتهت صلاحية محاولة تسجيل الدخول. ابدأ مرة أخرى.':'The sign-in attempt expired. Start again.')}else console.warn('Pi bridge polling:',error)}};
+  run();piBridgePollTimer=setInterval(run,2000);
 }
 function initPi(){
   let tries=0;const timer=setInterval(()=>{tries++;if(window.Pi?.init){clearInterval(timer);try{Pi.init({version:'2.0',sandbox:false});piReady=true;if(!auth)$('profileState').textContent=isPiBrowser()?(lang==='ar'?'جاهز لتسجيل الدخول':'Ready to sign in'):I18N[lang].signPi}catch(e){console.error(e)}}else if(tries>30){clearInterval(timer);if(!auth)$('profileState').textContent=I18N[lang].signPi}},150)
@@ -377,7 +410,7 @@ async function openSupport(){if(!auth){toast(lang==='ar'?'سجّل الدخول 
 async function sendSupport(){if(!auth)return openSupport();const input=$('supportInput'),message=String(input.value||'').trim();if(!message)return;const btn=$('supportSend');btn.disabled=true;try{await api('/api/conversations?mode=support',{method:'POST',body:JSON.stringify({mode:'support',message})});input.value='';await loadSupport({markRead:true})}catch(e){toast(friendlyClientError(e,lang==='ar'?'تعذر إرسال رسالة الدعم.':'Could not send the support message.').message)}finally{btn.disabled=false}}
 function startSupportPolling(){clearInterval(supportPoll);if(auth){loadSupport({silent:true});supportPoll=setInterval(()=>loadSupport({silent:true}),20000)}else setSupportBadge(0)}
 
-async function init(){applyLanguage();updateSupportLabels();initPi();let externalSignedIn=false;try{externalSignedIn=await finishExternalPiSignIn()}catch(e){console.error(e);toast(friendlyClientError(e,lang==='ar'?'تعذر إكمال تسجيل الدخول بحساب Pi. حاول مرة أخرى.':'Could not complete Pi sign-in. Try again.').message)}try{await loadModels()}catch(e){toast(friendlyClientError(e,lang==='ar'?'تعذر تحميل النماذج الآن. حاول مرة أخرى.':'Models could not be loaded right now. Please try again.').message)}render();if(auth){try{await refreshMe();await loadModels();await loadChats();startSupportPolling();if(externalSignedIn)toast(lang==='ar'?'تم تسجيل الدخول بحساب Pi بنجاح':'Signed in with Pi successfully')}catch(e){toast(friendlyClientError(e,lang==='ar'?'تعذر تحميل بيانات حسابك. تحقق من الاتصال ثم أعد المحاولة.':'Your account data could not be loaded. Check your connection and try again.').message)}}}
+async function init(){applyLanguage();updateSupportLabels();initPi();startPiBridgePolling();let externalSignedIn=false;try{externalSignedIn=await finishExternalPiSignIn();if(externalSignedIn)return}catch(e){console.error(e);toast(friendlyClientError(e,lang==='ar'?'تعذر إكمال تسجيل الدخول بحساب Pi. حاول مرة أخرى.':'Could not complete Pi sign-in. Try again.').message)}try{await loadModels()}catch(e){toast(friendlyClientError(e,lang==='ar'?'تعذر تحميل النماذج الآن. حاول مرة أخرى.':'Models could not be loaded right now. Please try again.').message)}render();if(auth){try{await refreshMe();await loadModels();await loadChats();startSupportPolling()}catch(e){toast(friendlyClientError(e,lang==='ar'?'تعذر تحميل بيانات حسابك. تحقق من الاتصال ثم أعد المحاولة.':'Your account data could not be loaded. Check your connection and try again.').message)}}}
 
 async function recoverIncompletePayment(payment,{silent=false}={}){
   const paymentId=payment?.identifier||payment?.paymentId||payment?.id;
