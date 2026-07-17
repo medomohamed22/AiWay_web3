@@ -15,7 +15,7 @@
   <div id="icon" class="spinner" aria-hidden="true"></div>
   <h1 id="title">جاري تأكيد حساب Pi</h1>
   <p id="message">انتظر لحظات، ولا تغلق الصفحة.</p>
-  <button id="closeBtn" class="btn" type="button">إغلاق</button>
+  <button id="closeBtn" class="btn" type="button">العودة إلى AiWay</button>
 </main>
 <script>
 (() => {
@@ -30,9 +30,14 @@
   function show(ok,text){
     icon.className=ok?'ok':'bad';icon.textContent=ok?'✓':'!';
     title.textContent=ok?(isAr?'تم تأكيد حسابك':'Account confirmed'):(isAr?'تعذر تسجيل الدخول':'Sign-in failed');
-    message.textContent=text;closeBtn.style.display='block';
+    message.textContent=text;
+    closeBtn.textContent=isAr?'العودة إلى AiWay':'Return to AiWay';
+    closeBtn.style.display='block';
   }
-  closeBtn.onclick=()=>{try{window.close()}catch{};};
+  closeBtn.onclick=()=>{
+    try{window.close()}catch{}
+    setTimeout(()=>location.replace('/?pi_signin=completed'),120);
+  };
   async function run(){
     const params=new URLSearchParams(location.hash.slice(1));
     const state=params.get('state')||'';

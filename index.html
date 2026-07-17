@@ -593,7 +593,6 @@ async function persistGeneratedImage(image){if(!image?.id||!image?.thumbnail_dat
 async function generateImageMessage(text,attachments){const modelId=$('model').value;history.push({role:'assistant',content:'',generatedImage:null,requestLanguage:/[\u0600-\u06FF]/.test(text)?'ar':'en',streamStage:'writing'});render();const r=await api('/api/image',{method:'POST',body:JSON.stringify({conversationId:current,prompt:text,referenceImage:attachments.find(a=>a.type.startsWith('image/'))?.dataUrl||null,modelId,aspectRatio:$('aspectRatio').value,resolution:$('imageResolution').value,requestId:newRequestId(),locale:lang})});history[history.length-1]={role:'assistant',content:lang==='ar'?'تم إنشاء الصورة المطلوبة.':'The requested image has been generated.',generatedImage:r.image,model_id:modelId,routedModelId:modelId,chargedTokens:Number(r.chargedTokens||0),providerUsd:Number(r.providerUsd||0),selectedModelName:r.selectedModelName||modelId,token_usage:{chargedTokens:Number(r.chargedTokens||0),routedModelId:modelId,providerUsd:Number(r.providerUsd||0),selectedModelName:r.selectedModelName||modelId}};render();persistGeneratedImage(r.image);await Promise.all([refreshMe(),loadChats()]);if(r.lowBalance)showLowBalance(r.remainingTokens)}
 
 async function sendMessage(){
-  if(!requirePiBrowser())return;
   if(streaming){controller?.abort();return}
   let stageTimer=0;
   try{
