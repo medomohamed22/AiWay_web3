@@ -17,14 +17,29 @@ function safeEqualHex(a, b) {
   }
 }
 
+function bridgeStateSignature(requestId) {
+  const secret = String(process.env.APP_JWT_SECRET || '');
+  if (!secret) throw appError('SERVER_CONFIG_ERROR');
+  return createHmac('sha256', secret)
+    .update(`${requestId}:pi-signin-state`)
+    .digest('base64url')
+    .slice(0, 22);
+}
+
+function createBridgeState(requestId) {
+  return `${requestId}.${bridgeStateSignature(requestId)}`;
+}
+
 function parseBridgeState(value) {
   const raw = String(value || '').trim();
   const dot = raw.indexOf('.');
   if (dot < 1) return null;
   const requestId = raw.slice(0, dot);
-  const pollToken = raw.slice(dot + 1);
-  if (!/^[0-9a-f-]{36}$/i.test(requestId) || !/^[A-Za-z0-9_-]{32,}$/.test(pollToken)) return null;
-  return { requestId, pollToken };
+  const signature = raw.slice(dot + 1);
+  if (!/^[0-9a-f-]{36}$/i.test(requestId) || !/^[A-Za-z0-9_-]{22}$/.test(signature)) return null;
+  const expected = bridgeStateSignature(requestId);
+  if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  return { requestId };
 }
 
 function exchangeCode(requestId, pollToken) {
@@ -101,7 +116,7 @@ export default async function handler(req, res) {
         request_ip: ip
       });
       if (error) throw appError('DATABASE_ERROR', {}, error);
-      return json(res, 200, { requestId, pollToken, state: `${requestId}.${pollToken}`, expiresAt });
+      return json(res, 200, { requestId, pollToken, state: createBridgeState(requestId), expiresAt });
     }
 
     if (action === 'bridge-complete') {
@@ -110,9 +125,22 @@ export default async function handler(req, res) {
       const parsed = parseBridgeState(req.body?.state);
       if (!accessToken || !parsed) throw appError('INVALID_REQUEST');
       const row = await readBridge(supabase, parsed.requestId);
-      if (!bridgeValid(row, parsed.pollToken) || row.status !== 'pending') throw appError('PI_LOGIN_BRIDGE_EXPIRED');
-      const { piUid, username } = await verifyPiAccessToken(accessToken);
-      const user = await upsertPiUser(supabase, piUid, username);
+      if (!row || row.consumed_at || new Date(row.expires_at).getTime() <= Date.now() || row.status !== 'pending') throw appError('PI_LOGIN_BRIDGE_EXPIRED');
+      let piIdentity;
+      try {
+        piIdentity = await verifyPiAccessToken(accessToken);
+      } catch (error) {
+        console.error('[PI_BRIDGE_COMPLETE_FAILED]', { stage: 'verify-token', requestId: parsed.requestId, code: error?.code, message: error?.message });
+        throw error;
+      }
+      const { piUid, username } = piIdentity;
+      let user;
+      try {
+        user = await upsertPiUser(supabase, piUid, username);
+      } catch (error) {
+        console.error('[PI_BRIDGE_COMPLETE_FAILED]', { stage: 'upsert-user', requestId: parsed.requestId, piUid, username, code: error?.code, message: error?.message });
+        throw error;
+      }
       const { data: updated, error } = await supabase
         .from('pi_login_requests')
         .update({ status: 'completed', user_id: user.id, completed_at: new Date().toISOString() })
