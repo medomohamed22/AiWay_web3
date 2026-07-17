@@ -1,10 +1,65 @@
-import {allowMethods,appError,cleanText,db,handleError,json,localize,requestLocale,requireUser} from './_lib.js';
+import {allowMethods,appError,cleanText,db,handleError,json,localize,requestLocale,requireUser,requireAdmin} from './_lib.js';
+
+async function handleSupport(req,res,user,s,locale){
+  const mode=String(req.query?.mode||req.body?.mode||'');
+  if(!['support','admin_support'].includes(mode))return false;
+  const isAdminMode=mode==='admin_support';
+  if(isAdminMode)await requireAdmin(user);
+
+  if(req.method==='GET'){
+    if(isAdminMode){
+      const threadId=String(req.query?.threadId||'');
+      if(threadId){
+        const {data:thread,error:tErr}=await s.from('support_threads').select('id,user_id,username,status,created_at,updated_at').eq('id',threadId).single();
+        if(tErr)throw appError('DATABASE_ERROR',{},tErr);
+        const {data:messages,error:mErr}=await s.from('support_messages').select('id,sender_role,message,created_at,read_at').eq('thread_id',threadId).order('created_at',{ascending:true});
+        if(mErr)throw appError('DATABASE_ERROR',{},mErr);
+        await s.from('support_messages').update({read_at:new Date().toISOString()}).eq('thread_id',threadId).eq('sender_role','user').is('read_at',null);
+        return json(res,200,{thread,messages:messages||[]});
+      }
+      const {data:threads,error}=await s.from('support_threads').select('id,user_id,username,status,created_at,updated_at').order('updated_at',{ascending:false});
+      if(error)throw appError('DATABASE_ERROR',{},error);
+      const ids=(threads||[]).map(x=>x.id);let unread=[];
+      if(ids.length){const {data,error:uErr}=await s.from('support_messages').select('thread_id').in('thread_id',ids).eq('sender_role','user').is('read_at',null);if(uErr)throw appError('DATABASE_ERROR',{},uErr);unread=data||[]}
+      const counts=unread.reduce((a,x)=>(a[x.thread_id]=(a[x.thread_id]||0)+1,a),{});
+      return json(res,200,{threads:(threads||[]).map(t=>({...t,unread:counts[t.id]||0}))});
+    }
+    let {data:thread,error:tErr}=await s.from('support_threads').select('id,user_id,username,status,created_at,updated_at').eq('user_id',user.id).maybeSingle();
+    if(tErr)throw appError('DATABASE_ERROR',{},tErr);
+    if(!thread){const {data,error}=await s.from('support_threads').insert({user_id:user.id,username:user.username||'Pi User'}).select('*').single();if(error)throw appError('DATABASE_ERROR',{},error);thread=data}
+    const {data:messages,error:mErr}=await s.from('support_messages').select('id,sender_role,message,created_at,read_at').eq('thread_id',thread.id).order('created_at',{ascending:true});
+    if(mErr)throw appError('DATABASE_ERROR',{},mErr);
+    const unread=(messages||[]).filter(m=>m.sender_role==='admin'&&!m.read_at).length;
+    if(String(req.query?.markRead||'')==='1'&&unread)await s.from('support_messages').update({read_at:new Date().toISOString()}).eq('thread_id',thread.id).eq('sender_role','admin').is('read_at',null);
+    return json(res,200,{thread,messages:messages||[],unread});
+  }
+
+  if(req.method==='POST'){
+    const message=cleanText(req.body?.message,2000);
+    if(!message)return json(res,400,{error:localize(locale,'اكتب رسالة الدعم أولًا.','Write a support message first.'),code:'INVALID_REQUEST'});
+    if(isAdminMode){
+      const threadId=String(req.body?.threadId||'');
+      if(!threadId)return json(res,400,{error:localize(locale,'محادثة الدعم مطلوبة.','Support thread is required.'),code:'INVALID_REQUEST'});
+      const {data:thread,error:tErr}=await s.from('support_threads').select('id').eq('id',threadId).single();if(tErr)throw appError('DATABASE_ERROR',{},tErr);
+      const {data,error}=await s.from('support_messages').insert({thread_id:thread.id,sender_role:'admin',sender_id:user.id,message}).select('*').single();if(error)throw appError('DATABASE_ERROR',{},error);
+      await s.from('support_threads').update({status:'open',updated_at:new Date().toISOString()}).eq('id',thread.id);
+      return json(res,201,{message:data});
+    }
+    let {data:thread,error:tErr}=await s.from('support_threads').select('id').eq('user_id',user.id).maybeSingle();if(tErr)throw appError('DATABASE_ERROR',{},tErr);
+    if(!thread){const {data,error}=await s.from('support_threads').insert({user_id:user.id,username:user.username||'Pi User'}).select('id').single();if(error)throw appError('DATABASE_ERROR',{},error);thread=data}
+    const {data,error}=await s.from('support_messages').insert({thread_id:thread.id,sender_role:'user',sender_id:user.id,message}).select('*').single();if(error)throw appError('DATABASE_ERROR',{},error);
+    await s.from('support_threads').update({status:'open',updated_at:new Date().toISOString()}).eq('id',thread.id);
+    return json(res,201,{message:data});
+  }
+  return json(res,405,{error:'Method not allowed',code:'METHOD_NOT_ALLOWED'});
+}
 
 export default async function handler(req,res){
   if(!allowMethods(req,res,['GET','POST','PATCH','DELETE']))return;
   const locale=requestLocale(req);
   try{
     const user=await requireUser(req),s=db();
+    const supportHandled=await handleSupport(req,res,user,s,locale);if(supportHandled!==false)return supportHandled;
 
     if(req.method==='GET'){
       const id=String(req.query?.id||'');
