@@ -120,7 +120,7 @@ export default async function handler(req, res) {
     } catch {}
 
     const [catalog, imageCatalog, trialModelId] = await Promise.all([getAvailableModels(), getImageModels(), getTrialModelId()]);
-    const models = [{ id:'aiway/auto', name:'AiWay Auto', family:'aiway', familyLabel:'AiWay', tag:'Auto', description:'Automatically chooses the cheapest suitable model.', contextLength:0, created:Date.now()/1000, type:'chat', shortName:'AiWay Auto', provider:'aiway', providerLabel:'AiWay', locked:false, trial:false, isAuto:true, isFree:false }, ...catalog.map(model => ({
+    const models = catalog.map(model => ({
       id: model.id,
       name: model.name,
       family: model.family,
@@ -136,7 +136,7 @@ export default async function handler(req, res) {
       providerLabel: model.familyLabel,
       locked: !unlocked && model.id !== trialModelId && !model.isFree,
       trial: model.id === trialModelId
-    }))];
+    }));
 
     const packages = {};
     try {
@@ -150,7 +150,14 @@ export default async function handler(req, res) {
       models,
       trialModelId,
       packages,
-      imageModels: imageCatalog.map(model => ({ ...model, isFree: String(model.id).endsWith(':free') || Number(model.pricing?.image || model.pricing?.prompt || 0) === 0, locked: !unlocked && !(String(model.id).endsWith(':free') || /grok-imagine-image-quality:free/i.test(model.id)) })),
+      imageModels: imageCatalog.map(model => {
+        const pricingValues = [model.pricing?.image, model.pricing?.image_output, model.pricing?.request]
+          .filter(value => value !== undefined && value !== null && value !== '')
+          .map(Number)
+          .filter(Number.isFinite);
+        const explicitlyFree = /:free$/i.test(String(model.id)) || (pricingValues.length > 0 && pricingValues.every(value => value === 0));
+        return { ...model, isFree: explicitlyFree, locked: !unlocked && !explicitlyFree };
+      }),
       tokenUsd: TOKEN_USD,
       refreshedAt: new Date().toISOString()
     });
