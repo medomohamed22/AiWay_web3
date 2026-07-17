@@ -446,6 +446,8 @@ function isTextChatModel(model) {
 }
 
 function normalizeModel(model, family) {
+  const promptPrice = Number(model.pricing?.prompt || 0);
+  const completionPrice = Number(model.pricing?.completion || 0);
   return {
     id: model.id,
     name: model.name || model.id.split('/').pop(),
@@ -455,9 +457,10 @@ function normalizeModel(model, family) {
     family: family.key,
     familyLabel: family.label,
     tag: family.tag,
+    isFree: String(model.id || '').endsWith(':free') || (promptPrice === 0 && completionPrice === 0),
     pricing: {
-      prompt: Number(model.pricing?.prompt || 0),
-      completion: Number(model.pricing?.completion || 0),
+      prompt: promptPrice,
+      completion: completionPrice,
       webSearch: Number(model.pricing?.web_search || 0)
     }
   };
@@ -489,12 +492,60 @@ export async function getAvailableModels() {
       const googleIndex = selected.findIndex(model => model.family === 'gemini');
       selected.splice(googleIndex >= 0 ? googleIndex : 0, 0, trialModel);
     }
+    // Keep a curated, live set of 11 free chat models (Gemma plus ten more).
+    // The list is discovered from OpenRouter so discontinued free endpoints disappear automatically.
+    const freeCandidates = (payload.data || [])
+      .filter(model => isTextChatModel(model) && (String(model.id || '').endsWith(':free') || (Number(model.pricing?.prompt || 0) === 0 && Number(model.pricing?.completion || 0) === 0)))
+      .map(model => {
+        const family = FAMILY_CONFIG.find(f => String(model.id || '').startsWith(f.prefix)) || { key: String(model.id || '').split('/')[0], label: String(model.id || '').split('/')[0], tag: 'Free' };
+        return normalizeModel(model, family);
+      })
+      .sort((a,b) => (/gemma/i.test(b.id)-/gemma/i.test(a.id)) || b.created-a.created);
+    for (const freeModel of freeCandidates.slice(0, 11)) {
+      const at = selected.findIndex(m => m.id === freeModel.id);
+      if (at >= 0) selected[at] = freeModel; else selected.unshift(freeModel);
+    }
     catalogCache = { at: Date.now(), models: selected };
     return selected;
   } catch (error) {
     console.warn('Using fallback model catalog:', error.message);
     return catalogCache.models;
   }
+}
+
+export function isFreeModel(model) { return Boolean(model?.isFree || String(model?.id || '').endsWith(':free') || (Number(model?.pricing?.prompt || 0) === 0 && Number(model?.pricing?.completion || 0) === 0)); }
+
+export async function chooseAutoModel(text = '', { webSearch = false, hasAttachments = false } = {}) {
+  const models = await getAvailableModels();
+  const available = models.filter(m => isTextChatModel(m));
+  const free = available.filter(isFreeModel);
+  const q = String(text || '').toLowerCase();
+  const complex = q.length > 1400 || /(?:حلل|تحليل عميق|برمجة|كود|debug|architecture|security|رياضيات|reason|research|compare)/i.test(q);
+  const coding = /(?:كود|برمجة|خطأ|بايثون|جافاسكربت|sql|code|debug|function|api)/i.test(q);
+  let pool = free.length ? free : available;
+  if (webSearch || hasAttachments || complex) {
+    const capable = available.filter(m => Number(m.contextLength || 0) >= 64000);
+    if (capable.length) pool = capable;
+  }
+  const score = m => {
+    const p = Number(m.pricing?.prompt || 0), c = Number(m.pricing?.completion || 0);
+    let value = (p + c * 2) * 1e6;
+    if (isFreeModel(m)) value -= 1000;
+    if (coding && /qwen|deepseek|coder|gemma/i.test(`${m.id} ${m.name}`)) value -= 50;
+    if (complex && /reason|r1|pro|large|70b|31b|27b/i.test(`${m.id} ${m.name}`)) value -= 20;
+    return value;
+  };
+  return [...pool].sort((a,b)=>score(a)-score(b))[0] || available[0] || null;
+}
+
+export async function claimFreeDailyUse(supabase, userId, kind = 'chat') {
+  const limit = kind === 'image' ? 2 : 20;
+  const { data, error } = await supabase.rpc('claim_free_model_request', { p_user_id:userId, p_kind:kind, p_daily_limit:limit });
+  if (error) {
+    if (String(error.message || '').toLowerCase().includes('daily free limit')) throw appError('RATE_LIMITED', { freeDailyLimit: limit });
+    throw appError('DATABASE_ERROR', {}, error);
+  }
+  return data || {};
 }
 
 export async function getTrialModelId() {

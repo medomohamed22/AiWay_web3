@@ -1,7 +1,7 @@
 import { allowMethods, db, fetchWithTimeout, getAvailableModels, getTrialModelId, json, localize, MARKUP, PACKAGES, packageQuote, requestLocale, requireUser, TOKEN_USD } from './_lib.js';
 
-const IMAGE_PROVIDER_ORDER = ['openai', 'google', 'bytedance-seed', 'black-forest-labs', 'stability-ai', 'recraft', 'ideogram'];
-const IMAGE_PROVIDER_LABELS = {
+const IMAGE_PROVIDER_ORDER = ['x-ai', 'openai', 'google', 'bytedance-seed', 'black-forest-labs', 'stability-ai', 'recraft', 'ideogram'];
+const IMAGE_PROVIDER_LABELS = { 'x-ai':'xAI · Grok Imagine',
   openai: 'OpenAI · GPT Image',
   google: 'Google · Gemini / Imagen',
   'bytedance-seed': 'ByteDance · Seedream',
@@ -77,6 +77,7 @@ async function getImageModels() {
         providerLabel: IMAGE_PROVIDER_LABELS[provider] || provider,
         created: Number(model.created || 0),
         description: model.description || '',
+        pricing: model.pricing || {},
         supportedParameters: serializableCapabilities(model.supported_parameters),
         supportedAspectRatios: enumValues(model.supported_parameters?.aspect_ratio),
         supportedResolutions: enumValues(model.supported_parameters?.resolution)
@@ -119,7 +120,7 @@ export default async function handler(req, res) {
     } catch {}
 
     const [catalog, imageCatalog, trialModelId] = await Promise.all([getAvailableModels(), getImageModels(), getTrialModelId()]);
-    const models = catalog.map(model => ({
+    const models = [{ id:'aiway/auto', name:'AiWay Auto', family:'aiway', familyLabel:'AiWay', tag:'Auto', description:'Automatically chooses the cheapest suitable model.', contextLength:0, created:Date.now()/1000, type:'chat', shortName:'AiWay Auto', provider:'aiway', providerLabel:'AiWay', locked:false, trial:false, isAuto:true, isFree:false }, ...catalog.map(model => ({
       id: model.id,
       name: model.name,
       family: model.family,
@@ -129,12 +130,13 @@ export default async function handler(req, res) {
       contextLength: model.contextLength,
       created: model.created,
       type: 'chat',
+      isFree: Boolean(model.isFree),
       shortName: model.name,
       provider: model.family,
       providerLabel: model.familyLabel,
-      locked: !unlocked && model.id !== trialModelId,
+      locked: !unlocked && model.id !== trialModelId && !model.isFree,
       trial: model.id === trialModelId
-    }));
+    }))];
 
     const packages = {};
     try {
@@ -148,7 +150,7 @@ export default async function handler(req, res) {
       models,
       trialModelId,
       packages,
-      imageModels: imageCatalog.map(model => ({ ...model, locked: !unlocked })),
+      imageModels: imageCatalog.map(model => ({ ...model, isFree: String(model.id).endsWith(':free') || Number(model.pricing?.image || model.pricing?.prompt || 0) === 0, locked: !unlocked && !(String(model.id).endsWith(':free') || /grok-imagine-image-quality:free/i.test(model.id)) })),
       tokenUsd: TOKEN_USD,
       refreshedAt: new Date().toISOString()
     });

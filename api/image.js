@@ -1,4 +1,4 @@
-import { allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, fetchWithTimeout, handleError, isLowBalance, json, localize, openRouterError, requestLocale, requireUser, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens } from './_lib.js';
+import { allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, fetchWithTimeout, handleError, isLowBalance, json, localize, openRouterError, requestLocale, requireUser, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens, claimFreeDailyUse } from './_lib.js';
 
 function safeFilename(value, extension) {
   const base = String(value || `AiWay-${Date.now()}`)
@@ -161,12 +161,15 @@ export default async function handler(req, res) {
       .eq('id', user.id)
       .single();
     if (profileError || !profile) throw appError('DATABASE_ERROR', {}, profileError);
-    if (!profile.has_purchased) throw appError('MODEL_LOCKED');
+    // Free image endpoints remain available before purchase, subject to a strict daily limit.
 
     const availableTokens = Math.max(0, Number(profile.ai_tokens || 0));
     if (availableTokens < 1) throw appError('INSUFFICIENT_TOKENS', { availableTokens });
     if (!process.env.OPENROUTER_API_KEY) throw appError('MISSING_CONFIGURATION');
     const model = await getImageModel(cleanText(modelId, 160));
+    const freeImageModel = String(model.id || '').endsWith(':free') || /grok-imagine-image-quality:free/i.test(model.id);
+    if (!profile.has_purchased && !freeImageModel) throw appError('MODEL_LOCKED');
+    if (freeImageModel) await claimFreeDailyUse(supabase, user.id, 'image');
     const supported = model.supported_parameters || {};
     const enumValues = descriptor => Array.isArray(descriptor)
       ? descriptor.map(String)
@@ -304,6 +307,8 @@ export default async function handler(req, res) {
     return json(res, 200, {
       image: savedImage,
       chargedTokens: charge.chargedTokens,
+      providerUsd: charge.providerUsd,
+      selectedModelName: model.name || model.id,
       remainingTokens,
       lowBalance: isLowBalance(remainingTokens, charge.chargedTokens)
     });

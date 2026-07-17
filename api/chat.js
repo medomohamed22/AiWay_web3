@@ -1,4 +1,4 @@
-import { affordableOutputLimit, allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, estimateChatCharge, fetchWithTimeout, getAvailableModels, getModel, getTrialModelId, handleError, isLowBalance, localize, openRouterError, requestLocale, requireUser, shouldTryModelFallback, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens } from './_lib.js';
+import { affordableOutputLimit, allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, estimateChatCharge, fetchWithTimeout, getAvailableModels, getModel, getTrialModelId, handleError, isLowBalance, localize, openRouterError, requestLocale, requireUser, shouldTryModelFallback, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens, chooseAutoModel, isFreeModel, claimFreeDailyUse } from './_lib.js';
 
 function extractDownloadableFiles(text) {
   const files = [];
@@ -116,8 +116,9 @@ export default async function handler(req, res) {
     reservationUserId = user.id; reservationRequestId = requestId;
     if (!conversationId || !modelId || !Array.isArray(messages)) throw appError('INVALID_CHAT_REQUEST');
 
-    const [model, trialModelId] = await Promise.all([getModel(modelId), getTrialModelId()]);
-    if (!model) throw appError('MODEL_UNAVAILABLE');
+    const trialModelId = await getTrialModelId();
+    let model = modelId === 'aiway/auto' ? null : await getModel(modelId);
+    if (modelId !== 'aiway/auto' && !model) throw appError('MODEL_UNAVAILABLE');
 
     const supabase = db();
     reservationSupabase = supabase;
@@ -131,7 +132,7 @@ export default async function handler(req, res) {
 
     const purchased = Boolean(profile.has_purchased);
     const availableTokens = Math.max(0, Number(profile.ai_tokens || 0));
-    if (!purchased && modelId !== trialModelId) throw appError('MODEL_LOCKED');
+    if (!purchased && modelId !== trialModelId && modelId !== 'aiway/auto' && !isFreeModel(model)) throw appError('MODEL_LOCKED');
     if (!purchased && webSearch) throw appError('TRIAL_WEB_LOCKED');
     if (!purchased && Number(profile.trial_messages_remaining) <= 0) throw appError('TRIAL_ENDED');
     if (availableTokens < 1) throw appError('INSUFFICIENT_TOKENS', { availableTokens });
@@ -163,7 +164,12 @@ export default async function handler(req, res) {
     }
 
     const latestUserText = [...cleaned].reverse().find(m => m.role === 'user')?.content;
-    const language = detectLanguage(typeof latestUserText === 'string' ? latestUserText : latestUserText?.find?.(part => part.type === 'text')?.text);
+    const latestTextValue = typeof latestUserText === 'string' ? latestUserText : latestUserText?.find?.(part => part.type === 'text')?.text || '';
+    const autoSelected = modelId === 'aiway/auto';
+    if (autoSelected) model = await chooseAutoModel(latestTextValue, { webSearch, hasAttachments: safeAttachments.length > 0 });
+    if (!model) throw appError('MODEL_UNAVAILABLE');
+    if (isFreeModel(model)) await claimFreeDailyUse(supabase, user.id, 'chat');
+    const language = detectLanguage(latestTextValue);
     const safeMessages = [{ role: 'system', content: formatSystemPrompt(model, language) }, ...cleaned.filter(message => message.role !== 'system')];
 
     const initialEstimate = estimateChatCharge(model.pricing, safeMessages, webSearch, 512);
@@ -229,7 +235,7 @@ export default async function handler(req, res) {
     }, 60000);
 
     let activeModel = model;
-    let activeModelId = modelId;
+    let activeModelId = model.id;
     let fallbackUsed = false;
     let response = await requestOpenRouter(activeModelId, initialMaxTokens);
 
@@ -330,11 +336,12 @@ export default async function handler(req, res) {
       user_id: user.id,
       role: 'assistant',
       content: answer,
-      model_id: modelId,
+      model_id: activeModelId,
       token_usage: {
         ...usage,
         ...charge,
         requestedModelId: modelId,
+        autoSelected,
         activeModelId,
         fallbackUsed,
         routedModelId: routedModelId || activeModelId,
@@ -349,7 +356,7 @@ export default async function handler(req, res) {
     });
     reservationActive = false;
     const conversationUpdate = await supabase.from('conversations')
-      .update({ model_id: modelId, updated_at: new Date().toISOString() })
+      .update({ model_id: activeModelId, updated_at: new Date().toISOString() })
       .eq('id', conversationId)
       .eq('user_id', user.id);
     if (conversationUpdate.error) console.warn('Conversation timestamp update failed:', conversationUpdate.error.message);
@@ -361,6 +368,7 @@ export default async function handler(req, res) {
       remainingTokens,
       lowBalance: isLowBalance(remainingTokens, charge.chargedTokens),
       requestedModelId: modelId,
+        autoSelected,
       routedModelId: routedModelId || activeModelId,
       fallbackUsed,
       activeModelId,
