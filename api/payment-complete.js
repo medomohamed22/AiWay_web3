@@ -12,7 +12,14 @@ async function piRequest(paymentId,action='',body){
 }
 function owner(r){return String(r?.user_uid||r?.user?.uid||r?.metadata?.pi_uid||'').trim();}
 function pkg(r){return String(r?.metadata?.packageId||r?.metadata?.package_id||'').trim();}
-function closeEnough(a,b){const x=Number(a),y=Number(b);return Number.isFinite(x)&&Number.isFinite(y)&&Math.abs(x-y)<=0.00000011;}
+function closeEnough(a,b){
+  const x=Number(a),y=Number(b);
+  if(!Number.isFinite(x)||!Number.isFinite(y)||x<=0||y<=0)return false;
+  // Some existing databases stored Pi amounts at 3 decimal places.
+  // Accept only the maximum legitimate rounding difference (half of 0.001 Pi),
+  // while still rejecting any meaningful price/package manipulation.
+  return Math.abs(x-y)<=0.00050001;
+}
 function norm(v){return String(v||'').trim();}
 function mismatch(reason,details={}){console.error('[PAYMENT_MISMATCH]',{reason,...details});throw appError('PAYMENT_MISMATCH');}
 function isCancelled(remote){return Boolean(remote?.status?.cancelled||remote?.status?.user_cancelled);}
