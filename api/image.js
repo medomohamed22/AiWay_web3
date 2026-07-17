@@ -1,4 +1,4 @@
-import { allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, fetchWithTimeout, handleError, isLowBalance, json, localize, openRouterError, requestLocale, requireUser } from './_lib.js';
+import { allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, fetchWithTimeout, handleError, isLowBalance, json, localize, openRouterError, requestLocale, requireUser, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens } from './_lib.js';
 
 function safeFilename(value, extension) {
   const base = String(value || `AiWay-${Date.now()}`)
@@ -9,14 +9,10 @@ function safeFilename(value, extension) {
 }
 
 async function downloadImage(req, res) {
-  const token = String(req.body?.token || req.query?.token || '');
   const imageId = String(req.body?.imageId || req.query?.imageId || '');
   if (!imageId) throw new Error('UNAUTHORIZED');
 
-  const originalAuthorization = req.headers.authorization;
-  if (token) req.headers.authorization = `Bearer ${token}`;
   const user = await requireUser(req);
-  req.headers.authorization = originalAuthorization;
 
   const { data: image, error } = await db()
     .from('generated_images')
@@ -143,6 +139,7 @@ async function getImageModel(requestedModelId = '') {
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['GET', 'POST'])) return;
   const uiLocale = requestLocale(req);
+  let reservationUserId=null,reservationRequestId=null,reservationSupabase=null,reservationActive=false;
   try {
     const action = String(req.body?.action || req.query?.action || '');
     if (action === 'download') return await downloadImage(req, res);
@@ -150,12 +147,14 @@ export default async function handler(req, res) {
     if (action === 'persist') return await persistImage(req, res);
 
     const user = await requireUser(req);
-    const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1', resolution = '' } = req.body || {};
+    const { conversationId, prompt, referenceImage, modelId, aspectRatio = '1:1', resolution = '', requestId: rawRequestId } = req.body || {};
+    const requestId=normalizeRequestId(rawRequestId); reservationUserId=user.id; reservationRequestId=requestId;
     const cleanPrompt = cleanText(prompt, 4000);
     const requestedAspectRatio = cleanText(aspectRatio, 20);
     if (!conversationId || !cleanPrompt) throw appError('INVALID_IMAGE_REQUEST');
 
-    const supabase = db();
+    const supabase = db(); reservationSupabase=supabase;
+    await ensureConversationOwner(supabase, conversationId, user.id);
     const { data: profile, error: profileError } = await supabase
       .from('users')
       .select('ai_tokens,has_purchased')
@@ -211,6 +210,9 @@ export default async function handler(req, res) {
         shortfall: estimatedCharge.chargedTokens - availableTokens
       });
     }
+
+    await reserveAiTokens(supabase,user.id,requestId,'image',availableTokens);
+    reservationActive=true;
 
     const response = await fetchWithTimeout('https://openrouter.ai/api/v1/images', {
       method: 'POST',
@@ -291,18 +293,8 @@ export default async function handler(req, res) {
       throw saveError;
     }
 
-    const { error: chargeError } = await supabase.rpc('consume_ai_tokens', {
-      p_user_id: user.id,
-      p_amount: charge.chargedTokens
-    });
-    if (chargeError) {
-      await supabase.from('generated_images').delete().eq('id', savedImage.id).eq('user_id', user.id);
-      await supabase.from('messages').delete().in('id', [savedAssistant.id, savedUser.id]).eq('user_id', user.id);
-      throw await classifyTokenChargeFailure(supabase, user.id, charge.chargedTokens, chargeError);
-    }
-
-    const { data: updatedProfile } = await supabase.from('users').select('ai_tokens').eq('id', user.id).single();
-    const remainingTokens = Math.max(0, Number(updatedProfile?.ai_tokens ?? availableTokens - charge.chargedTokens));
+    const remainingTokens=await finalizeAiTokens(supabase,user.id,requestId,charge.chargedTokens,{imageId:savedImage.id,modelId:model.id});
+    reservationActive=false;
     const conversationUpdate = await supabase.from('conversations')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', conversationId)
@@ -316,6 +308,7 @@ export default async function handler(req, res) {
       lowBalance: isLowBalance(remainingTokens, charge.chargedTokens)
     });
   } catch (error) {
+    if(reservationActive&&reservationSupabase&&reservationUserId&&reservationRequestId){await releaseAiTokens(reservationSupabase,reservationUserId,reservationRequestId,{code:String(error?.code||'SERVER_ERROR')});reservationActive=false;}
     const action = String(req.body?.action || req.query?.action || '');
     if (action === 'download' && error?.message === 'IMAGE_NOT_FOUND') {
       const details = errorDetails(error, uiLocale);

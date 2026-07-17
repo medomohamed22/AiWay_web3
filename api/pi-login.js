@@ -1,9 +1,10 @@
-import { allowMethods, appError, db, handleError, json, localize, piApiError, requestLocale, signAppToken } from './_lib.js';
+import { allowMethods, appError, db, handleError, json, localize, piApiError, requestLocale, signAppToken, requestIp, enforceRateLimit } from './_lib.js';
 
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['POST'])) return;
   const locale = requestLocale(req);
   try {
+    const limiterDb=db(); await enforceRateLimit(limiterDb,`login:${requestIp(req)}`,10,60);
     const accessToken = String(req.body?.accessToken || '').trim();
     if (!accessToken) return json(res, 400, {
       error: localize(locale, 'رمز تسجيل الدخول من Pi غير موجود. أعد فتح الموقع داخل Pi Browser وحاول مرة أخرى.', 'The Pi sign-in token is missing. Reopen the site in Pi Browser and try again.'),

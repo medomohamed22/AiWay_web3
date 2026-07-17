@@ -28,7 +28,7 @@ export default async function handler(req, res) {
   const locale = requestLocale(req);
   try {
     const user = await requireUser(req);
-    requireAdmin(user);
+    await requireAdmin(user);
     const s = db();
     const [usersResult, buyersResult, requestsResult, completed, usageRows, balanceRows] = await Promise.all([
       s.from('users').select('*', { count: 'exact', head: true }).eq('role', 'user'),

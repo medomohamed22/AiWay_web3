@@ -63,8 +63,10 @@ export async function requireUser(req) {
   }
 }
 
-export function requireAdmin(user) {
-  if (!user || user.role !== 'admin') throw appError('FORBIDDEN');
+export async function requireAdmin(user) {
+  if (!user?.id) throw appError('FORBIDDEN');
+  const { data, error } = await db().from('users').select('role').eq('id', user.id).single();
+  if (error || data?.role !== 'admin') throw appError('FORBIDDEN');
 }
 
 
@@ -316,6 +318,9 @@ export function errorDetails(error, locale = 'ar') {
       ar: 'إعدادات الدفع عبر Pi على الخادم غير صالحة حاليًا. لم يتغير رصيدك؛ تواصل مع إدارة AiWay.',
       en: 'The server-side Pi payment settings are currently invalid. Your balance was not changed; contact AiWay support.'
     }],
+    REQUEST_IN_PROGRESS: [409, { ar: 'يوجد طلب ذكاء قيد التنفيذ بالفعل. انتظر اكتماله ثم أرسل طلبًا جديدًا.', en: 'An AI request is already in progress. Let it finish before sending another.' }],
+    REQUEST_ALREADY_PROCESSED: [409, { ar: 'تمت معالجة هذا الطلب من قبل. حدّث المحادثة لعرض النتيجة.', en: 'This request was already processed. Refresh the conversation to view the result.' }],
+    PAYMENT_MISMATCH: [400, { ar: 'بيانات عملية الدفع لا تطابق الباقة أو الحساب الحالي، لذلك لم تتم إضافة الرصيد.', en: 'The payment does not match the selected package or current account, so no balance was added.' }],
     PAYMENT_FAILED: [502, {
       ar: 'تعذر إتمام الدفع عبر Pi حاليًا. لم تتم إضافة أو خصم رصيد؛ حاول مرة أخرى.',
       en: 'The Pi payment could not be completed right now. No balance was added or deducted; try again.'
@@ -604,4 +609,53 @@ export async function packageQuote(id) {
   if (!pack) return null;
   const piUsd = await getPiUsd();
   return { ...pack, piUsd, amountPi: Number((pack.usd / piUsd).toFixed(7)), quotedAt: new Date().toISOString() };
+}
+
+
+export async function ensureConversationOwner(supabase, conversationId, userId) {
+  const { data, error } = await supabase.from('conversations').select('id,user_id').eq('id', conversationId).eq('user_id', userId).maybeSingle();
+  if (error) throw appError('DATABASE_ERROR', {}, error);
+  if (!data) throw appError('FORBIDDEN');
+  return data;
+}
+
+export function normalizeRequestId(value) {
+  const id = String(value || '').trim();
+  if (!/^[A-Za-z0-9_-]{8,120}$/.test(id)) throw appError('INVALID_REQUEST');
+  return id;
+}
+
+export async function reserveAiTokens(supabase, userId, requestId, kind, amount) {
+  const { data, error } = await supabase.rpc('reserve_ai_tokens', { p_user_id:userId, p_request_id:requestId, p_kind:kind, p_amount:Math.max(1,Math.ceil(Number(amount)||1)) });
+  if (error) {
+    const m=String(error.message||'').toLowerCase();
+    if (m.includes('already in progress')) throw appError('REQUEST_IN_PROGRESS');
+    if (m.includes('insufficient')) throw appError('INSUFFICIENT_TOKENS_FOR_REQUEST');
+    if (m.includes('trial ended')) throw appError('TRIAL_ENDED');
+    throw appError('DATABASE_ERROR',{},error);
+  }
+  if (data?.status === 'completed' || data?.status === 'released') throw appError('REQUEST_ALREADY_PROCESSED');
+  return data || {};
+}
+
+export async function finalizeAiTokens(supabase,userId,requestId,actual,meta={}) {
+  const { data,error }=await supabase.rpc('finalize_ai_tokens',{p_user_id:userId,p_request_id:requestId,p_actual:Math.max(1,Math.ceil(Number(actual)||1)),p_meta:meta});
+  if(error) throw appError('DATABASE_ERROR',{},error);
+  return Math.max(0,Number(data||0));
+}
+
+export async function releaseAiTokens(supabase,userId,requestId,meta={}) {
+  if(!requestId) return;
+  const { error }=await supabase.rpc('release_ai_tokens',{p_user_id:userId,p_request_id:requestId,p_meta:meta});
+  if(error) console.error('Token reservation release failed:',error.message);
+}
+
+
+export function requestIp(req) {
+  return String(req?.headers?.['x-forwarded-for'] || req?.headers?.['x-real-ip'] || 'unknown').split(',')[0].trim().slice(0,80);
+}
+export async function enforceRateLimit(supabase,bucket,limit,windowSeconds) {
+  const {data,error}=await supabase.rpc('check_api_rate_limit',{p_bucket:String(bucket).slice(0,180),p_limit:limit,p_window_seconds:windowSeconds});
+  if(error) throw appError('DATABASE_ERROR',{},error);
+  if(!data) throw appError('RATE_LIMITED');
 }

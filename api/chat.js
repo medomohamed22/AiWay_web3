@@ -1,4 +1,4 @@
-import { affordableOutputLimit, allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, estimateChatCharge, fetchWithTimeout, getAvailableModels, getModel, getTrialModelId, handleError, isLowBalance, localize, openRouterError, requestLocale, requireUser, shouldTryModelFallback } from './_lib.js';
+import { affordableOutputLimit, allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, estimateChatCharge, fetchWithTimeout, getAvailableModels, getModel, getTrialModelId, handleError, isLowBalance, localize, openRouterError, requestLocale, requireUser, shouldTryModelFallback, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens } from './_lib.js';
 
 function extractDownloadableFiles(text) {
   const files = [];
@@ -52,22 +52,18 @@ function makeStoreZip(files) {
   const centralSize = central.reduce((n,b)=>n+b.length,0); const end=Buffer.alloc(22); end.writeUInt32LE(0x06054b50,0); end.writeUInt16LE(files.length,8); end.writeUInt16LE(files.length,10); end.writeUInt32LE(centralSize,12); end.writeUInt32LE(offset,16); return Buffer.concat([...local,...central,end]);
 }
 async function downloadGeneratedProject(req,res) {
-  const token=String(req.query?.token||''),messageId=String(req.query?.messageId||''); if(!messageId) throw new Error('UNAUTHORIZED');
-  const original=req.headers.authorization; if(token) req.headers.authorization=`Bearer ${token}`; const user=await requireUser(req); req.headers.authorization=original;
+  const messageId=String(req.query?.messageId||''); if(!messageId) throw new Error('UNAUTHORIZED');
+  const user=await requireUser(req);
   const {data:message,error}=await db().from('messages').select('id,content,role').eq('id',messageId).eq('user_id',user.id).eq('role','assistant').single(); if(error||!message) throw new Error('FILE_NOT_FOUND');
   const files=extractDownloadableFiles(message.content); if(!files.length) throw new Error('FILE_NOT_FOUND'); const body=makeStoreZip(files);
   res.status(200); res.setHeader('Content-Type','application/zip'); res.setHeader('Content-Length',String(body.length)); res.setHeader('Content-Disposition',`attachment; filename="aiway-project.zip"`); res.setHeader('Cache-Control','private, no-store, max-age=0'); return res.end(body);
 }
 async function downloadGeneratedFile(req, res) {
-  const token = String(req.query?.token || '');
   const messageId = String(req.query?.messageId || '');
   const fileIndex = Number(req.query?.fileIndex);
   if (!messageId || !Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 7) throw new Error('UNAUTHORIZED');
 
-  const originalAuthorization = req.headers.authorization;
-  if (token) req.headers.authorization = `Bearer ${token}`;
   const user = await requireUser(req);
-  req.headers.authorization = originalAuthorization;
 
   const { data: message, error } = await db().from('messages')
     .select('id,content,role')
@@ -108,19 +104,24 @@ async function readProviderFailure(response) {
 export default async function handler(req, res) {
   if (!allowMethods(req, res, ['GET', 'POST'])) return;
   const uiLocale = requestLocale(req);
+  let reservationUserId = null, reservationRequestId = null, reservationSupabase = null, reservationActive = false;
   try {
     if (req.method === 'GET' && String(req.query?.action || '') === 'download-file') return await downloadGeneratedFile(req, res);
     if (req.method === 'GET' && String(req.query?.action || '') === 'download-project') return await downloadGeneratedProject(req, res);
     if (req.method !== 'POST') throw appError('INVALID_REQUEST');
 
     const user = await requireUser(req);
-    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [] } = req.body || {};
+    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [], requestId: rawRequestId } = req.body || {};
+    const requestId = normalizeRequestId(rawRequestId);
+    reservationUserId = user.id; reservationRequestId = requestId;
     if (!conversationId || !modelId || !Array.isArray(messages)) throw appError('INVALID_CHAT_REQUEST');
 
     const [model, trialModelId] = await Promise.all([getModel(modelId), getTrialModelId()]);
     if (!model) throw appError('MODEL_UNAVAILABLE');
 
     const supabase = db();
+    reservationSupabase = supabase;
+    await ensureConversationOwner(supabase, conversationId, user.id);
     const { data: profile, error: profileError } = await supabase
       .from('users')
       .select('ai_tokens,trial_messages_remaining,has_purchased')
@@ -184,6 +185,11 @@ export default async function handler(req, res) {
     }
 
     if (!process.env.OPENROUTER_API_KEY) throw appError('MISSING_CONFIGURATION');
+
+    // Reserve the full currently available balance before calling the provider.
+    // The unused difference is returned atomically after the real usage is known.
+    await reserveAiTokens(supabase, user.id, requestId, 'chat', availableTokens);
+    reservationActive = true;
 
     const lastUserMessage = [...cleaned].reverse().find(message => message.role === 'user');
     if (lastUserMessage) {
@@ -338,17 +344,10 @@ export default async function handler(req, res) {
     }).select('id').single();
     if (saveAssistantError || !savedAssistant) throw appError('DATABASE_ERROR', {}, saveAssistantError);
 
-    const { error: chargeError } = await supabase.rpc('consume_ai_tokens', {
-      p_user_id: user.id,
-      p_amount: charge.chargedTokens
+    const remainingTokens = await finalizeAiTokens(supabase, user.id, requestId, charge.chargedTokens, {
+      messageId: savedAssistant.id, modelId: activeModelId, generationId: generationId || null
     });
-    if (chargeError) {
-      await supabase.from('messages').delete().eq('id', savedAssistant.id).eq('user_id', user.id);
-      throw await classifyTokenChargeFailure(supabase, user.id, charge.chargedTokens, chargeError);
-    }
-
-    const { data: updatedProfile } = await supabase.from('users').select('ai_tokens').eq('id', user.id).single();
-    const remainingTokens = Math.max(0, Number(updatedProfile?.ai_tokens ?? availableTokens - charge.chargedTokens));
+    reservationActive = false;
     const conversationUpdate = await supabase.from('conversations')
       .update({ model_id: modelId, updated_at: new Date().toISOString() })
       .eq('id', conversationId)
@@ -370,6 +369,10 @@ export default async function handler(req, res) {
     })}\n\n`);
     return res.end();
   } catch (error) {
+    if (reservationActive && reservationSupabase && reservationUserId && reservationRequestId) {
+      await releaseAiTokens(reservationSupabase, reservationUserId, reservationRequestId, { code: String(error?.code || 'SERVER_ERROR') });
+      reservationActive = false;
+    }
     if (res.headersSent) {
       const details = errorDetails(error, uiLocale);
       res.write(`data: ${JSON.stringify({
