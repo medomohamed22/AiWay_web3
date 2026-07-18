@@ -569,7 +569,7 @@ export async function chooseAutoModel(text = '', { webSearch = false, hasAttachm
 }
 
 export async function claimFreeDailyUse(supabase, userId, kind = 'chat') {
-  const limit = kind === 'image' ? 2 : 20;
+  const limit = kind === 'image' ? 30 : 20;
   const { data, error } = await supabase.rpc('claim_free_model_request', { p_user_id:userId, p_kind:kind, p_daily_limit:limit });
   if (error) {
     if (String(error.message || '').toLowerCase().includes('daily free limit')) throw appError('RATE_LIMITED', { freeDailyLimit: limit });

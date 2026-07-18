@@ -1,5 +1,12 @@
 import { allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, fetchWithTimeout, handleError, isLowBalance, json, localize, openRouterError, requestLocale, requireUser, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens, claimFreeDailyUse, createDownloadTicket, verifyDownloadTicket } from './_lib.js';
 
+
+function isStorageCapacityError(error) {
+  const text = String(error?.message || error?.error || error || '').toLowerCase();
+  const status = Number(error?.statusCode || error?.status || 0);
+  return status === 413 || status === 507 || /quota|storage.*limit|limit.*storage|insufficient storage|capacity|bucket.*full|exceeded|maximum.*size|database or disk is full/.test(text);
+}
+
 function safeFilename(value, extension) {
   const base = String(value || `AiWay-${Date.now()}`)
     .replace(/[^a-zA-Z0-9._-]/g, '-')
@@ -76,7 +83,7 @@ async function downloadImage(req, res, ticketed = false) {
 
   const { data: image, error } = await db()
     .from('generated_images')
-    .select('id,media_type,thumbnail_data,storage_path,created_at')
+    .select('id,media_type,thumbnail_data,storage_path,source_url,created_at')
     .eq('id', imageId)
     .eq('user_id', user.id)
     .single();
@@ -89,11 +96,18 @@ async function downloadImage(req, res, ticketed = false) {
     if (storageError || !data) throw new Error('IMAGE_NOT_FOUND');
     file = Buffer.from(await data.arrayBuffer());
     mediaType = String(data.type || mediaType);
-  } else {
+  } else if (image.thumbnail_data) {
     const match = String(image.thumbnail_data || '').match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
     if (!match) throw new Error('IMAGE_NOT_FOUND');
     mediaType = String(image.media_type || match[1] || 'image/jpeg').toLowerCase();
     file = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+  } else if (image.source_url && /^https:\/\//i.test(String(image.source_url))) {
+    const remote = await fetchWithTimeout(String(image.source_url), {}, 30000);
+    if (!remote.ok) throw new Error('IMAGE_NOT_FOUND');
+    file = Buffer.from(await remote.arrayBuffer());
+    mediaType = String(remote.headers.get('content-type') || mediaType).split(';')[0].trim().toLowerCase();
+  } else {
+    throw new Error('IMAGE_NOT_FOUND');
   }
   const extension = mediaType.includes('png') ? 'png' : mediaType.includes('webp') ? 'webp' : 'jpg';
   const filename = safeFilename(`AiWay-${image.id}`, extension);
@@ -135,14 +149,35 @@ async function persistImage(req, res) {
     cacheControl: '31536000',
     upsert: false
   });
-  if (uploadError && !/already exists|duplicate/i.test(String(uploadError.message || ''))) throw uploadError;
+  if (uploadError && !/already exists|duplicate/i.test(String(uploadError.message || ''))) {
+    if (!isStorageCapacityError(uploadError)) throw uploadError;
+
+    // Emergency mode: do not stop image generation when the Storage bucket is full.
+    // The browser keeps the generated data URL in the current session so the user
+    // can preview and download it immediately, while Supabase stores metadata only.
+    const { error: fallbackUpdateError } = await supabase.from('generated_images').update({
+      storage_status: 'client_only',
+      fallback_reason: 'storage_capacity',
+      file_size: file.length,
+      thumbnail_data: null
+    }).eq('id', imageId).eq('user_id', user.id);
+    if (fallbackUpdateError) throw fallbackUpdateError;
+
+    return json(res, 200, {
+      saved: false,
+      fallback: true,
+      storageStatus: 'client_only',
+      reason: 'storage_capacity'
+    });
+  }
 
   const { error: updateError } = await supabase.from('generated_images').update({
     storage_path: storagePath,
     storage_status: 'ready',
     file_size: file.length,
     stored_at: new Date().toISOString(),
-    thumbnail_data: null
+    thumbnail_data: null,
+    fallback_reason: null
   }).eq('id', imageId).eq('user_id', user.id);
   if (updateError) throw updateError;
   return json(res, 200, { saved: true, storagePath });
@@ -294,9 +329,16 @@ export default async function handler(req, res) {
     if (!response.ok) throw openRouterError(response.status, payload, { kind: 'image' });
 
     const item = payload.data?.[0];
-    if (!item?.b64_json) throw appError('EMPTY_RESPONSE');
+    if (!item?.b64_json && !item?.url) throw appError('EMPTY_RESPONSE');
     const mediaType = item.media_type || 'image/jpeg';
-    const thumbnailData = `data:${mediaType};base64,${item.b64_json}`;
+    let thumbnailData = item?.b64_json ? `data:${mediaType};base64,${item.b64_json}` : null;
+    const sourceUrl = /^https:\/\//i.test(String(item?.url || '')) ? String(item.url) : null;
+    if (!thumbnailData && sourceUrl) {
+      const remoteImage = await fetchWithTimeout(sourceUrl, {}, 30000);
+      if (!remoteImage.ok) throw appError('EMPTY_RESPONSE');
+      const remoteBuffer = Buffer.from(await remoteImage.arrayBuffer());
+      thumbnailData = `data:${mediaType};base64,${remoteBuffer.toString('base64')}`;
+    }
     const imageUsage = payload.usage?.cost ? payload.usage : { ...(payload.usage || {}), cost: estimatedCharge.providerUsd };
     const charge = chargeTokens({}, imageUsage, false);
     if (charge.chargedTokens > availableTokens) {
@@ -340,6 +382,7 @@ export default async function handler(req, res) {
         prompt: cleanPrompt,
         media_type: mediaType,
         thumbnail_data: thumbnailData,
+        source_url: sourceUrl,
         storage_status: 'pending',
         width: Number(item.width) || null,
         height: Number(item.height) || null,
