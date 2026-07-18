@@ -408,7 +408,7 @@ function renderAccountState(){
 }
 function applyLanguage(){document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';document.querySelector('[data-legal="privacy"]')&&(document.querySelector('[data-legal="privacy"]').textContent=lang==='ar'?'سياسة الخصوصية':'Privacy Policy');document.querySelector('[data-legal="terms"]')&&(document.querySelector('[data-legal="terms"]').textContent=lang==='ar'?'شروط الاستخدام':'Terms of Service');document.querySelectorAll('[data-i18n]').forEach(el=>{if(!['profileName','profileState'].includes(el.id))el.textContent=I18N[lang][el.dataset.i18n]||el.textContent});$('languageLabel').textContent=lang==='en'?'العربية':'English';$('prompt').placeholder=lang==='ar'?'اسأل أي شيء...':'Ask anything...';if($('attachBtn')){$('attachBtn').setAttribute('aria-label',lang==='ar'?'إرفاق صورة أو ملف':'Attach image or file');$('attachBtn').title=$('attachBtn').getAttribute('aria-label')}updatePiSigninModal();renderPackages();if(window.aiwayModels)renderModelSelect($('model').value);renderAccountState();updateIntroLanguage();render()}
 function toggleLanguage(){lang=lang==='en'?'ar':'en';try{sessionStorage.setItem('aiway_intro_lang',lang)}catch{}storageSet('aiway_lang',lang);applyLanguage()}
-async function deleteChat(id){const ok=await aiwayConfirm(lang==='ar'?'سيتم حذف هذه الدردشة ورسائلها نهائيًا، ولا يمكن التراجع عن هذا الإجراء.':'This chat and all of its messages will be permanently deleted. This action cannot be undone.',{title:lang==='ar'?'حذف الدردشة؟':'Delete this chat?',confirmText:lang==='ar'?'حذف نهائي':'Delete permanently',cancelText:lang==='ar'?'احتفاظ بالدردشة':'Keep chat',type:'danger'});if(!ok)return;try{await api('/api/conversations?id='+encodeURIComponent(id),{method:'DELETE'});if(current===id){current=null;history=[];render()}await loadChats();toast(lang==='ar'?'تم حذف الدردشة':'Chat deleted')}catch(e){toast(friendlyClientError(e,lang==='ar'?'لم نتمكن من حذف الدردشة. حاول مرة أخرى.':'We could not delete the chat. Please try again.').message)}}
+async function deleteChat(id){conversationCoreCache.delete(id);conversationCoreRequests.delete(id);const ok=await aiwayConfirm(lang==='ar'?'سيتم حذف هذه الدردشة ورسائلها نهائيًا، ولا يمكن التراجع عن هذا الإجراء.':'This chat and all of its messages will be permanently deleted. This action cannot be undone.',{title:lang==='ar'?'حذف الدردشة؟':'Delete this chat?',confirmText:lang==='ar'?'حذف نهائي':'Delete permanently',cancelText:lang==='ar'?'احتفاظ بالدردشة':'Keep chat',type:'danger'});if(!ok)return;try{await api('/api/conversations?id='+encodeURIComponent(id),{method:'DELETE'});if(current===id){current=null;history=[];render()}await loadChats();toast(lang==='ar'?'تم حذف الدردشة':'Chat deleted')}catch(e){toast(friendlyClientError(e,lang==='ar'?'لم نتمكن من حذف الدردشة. حاول مرة أخرى.':'We could not delete the chat. Please try again.').message)}}
 function isPiBrowser(){
   const ua=String(navigator.userAgent||'');
   return /(?:PiBrowser|Pi Browser)/i.test(ua);
@@ -644,7 +644,6 @@ async function recoverIncompletePayment(payment,{silent=false}={}){
   }
 }
 async function authenticatePiForPayments({refreshSession=true,silentRecovery=true,requirePendingResolved=false}={}){
-  if(!piReady||!window.Pi?.authenticate)await initPi();
   if(!piReady||!window.Pi?.authenticate)throw makeUiError(lang==='ar'?'افتح الموقع من Pi Browser وانتظر اكتمال تحميل خدمة Pi.':'Open the site in Pi Browser and wait for the Pi service to finish loading.','PI_BROWSER_REQUIRED');
   const pendingPayments=[];
   const result=await Pi.authenticate(['username','payments'],payment=>{if(payment)pendingPayments.push(payment)});
@@ -661,24 +660,79 @@ async function authenticatePiForPayments({refreshSession=true,silentRecovery=tru
   return {result,recovered:resolved,pendingFound:outcomes.length};
 }
 async function login(){if(auth)return toast(lang==='ar'?'أنت مسجل بالفعل':'You are already signed in');if(!isPiBrowser()){openPiSigninModal();return false}const btn=$('loginBtn');btn.disabled=true;btn.querySelector('span:last-child').textContent=lang==='ar'?'جارٍ الدخول':'Signing in…';$('profileState').innerHTML='<span class="loading-dot"></span> <span class="loading-dot"></span> <span class="loading-dot"></span>';try{await authenticatePiForPayments({refreshSession:true,silentRecovery:true});await Promise.all([refreshMe(),loadModels(),loadChats()]);dismissSigninGuide();toast(userProfile?.has_purchased?(lang==='ar'?'تم تسجيل الدخول بنجاح':'Signed in successfully'):(lang==='ar'?`مرحبًا بك — لديك ${userProfile?.trial_messages_remaining||0} رسائل مجانية`:`Welcome — you have ${userProfile?.trial_messages_remaining||0} free messages`))}catch(e){console.error(e);$('profileState').textContent=lang==='ar'?'تعذر تسجيل الدخول':'Could not sign in';toast(friendlyClientError(e,lang==='ar'?'تعذر تسجيل الدخول بحساب Pi. أعد المحاولة داخل Pi Browser.':'Pi sign-in failed. Try again inside Pi Browser.').message)}finally{btn.disabled=false;btn.querySelector('span:last-child').textContent=auth?I18N[lang].connected:I18N[lang].login}}
-function logout(show=true){auth=null;userProfile=null;current=null;history=[];storageRemove('pi_ai_auth');$('profileName').textContent=I18N[lang].guest;$('profileState').textContent=I18N[lang].signPi;$('credits').textContent='0';$('chats').innerHTML='';$('loginBtn').querySelector('span:last-child').textContent=I18N[lang].login;render();if(show)toast(lang==='ar'?'تم تسجيل الخروج':'Signed out')}
+const LOCAL_CACHE_DB='aiway-smart-cache',LOCAL_CACHE_VERSION=1,MAX_LOCAL_IMAGES=80,MAX_LOCAL_IMAGE_BYTES=150*1024*1024,MAX_LOCAL_CONVERSATIONS=40;
+let localCacheDbPromise=null;const localImageObjectUrls=new Set();
+function localCacheUser(){return String(userProfile?.username||'').trim().toLowerCase()||null}
+function openLocalCache(){
+  if(!('indexedDB'in window))return Promise.reject(new Error('IndexedDB unavailable'));
+  if(localCacheDbPromise)return localCacheDbPromise;
+  localCacheDbPromise=new Promise((resolve,reject)=>{const q=indexedDB.open(LOCAL_CACHE_DB,LOCAL_CACHE_VERSION);q.onupgradeneeded=()=>{const db=q.result;if(!db.objectStoreNames.contains('conversations'))db.createObjectStore('conversations',{keyPath:'key'});if(!db.objectStoreNames.contains('images'))db.createObjectStore('images',{keyPath:'key'})};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)});
+  return localCacheDbPromise;
+}
+async function localCacheGet(store,key){try{const db=await openLocalCache();return await new Promise((resolve,reject)=>{const tx=db.transaction(store,'readonly'),q=tx.objectStore(store).get(key);q.onsuccess=()=>resolve(q.result||null);q.onerror=()=>reject(q.error)})}catch{return null}}
+async function localCachePut(store,value){try{const db=await openLocalCache();await new Promise((resolve,reject)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).put(value);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});return true}catch{return false}}
+async function localCacheDeleteUser(username){if(!username)return;try{const db=await openLocalCache();for(const storeName of ['conversations','images'])await new Promise((resolve,reject)=>{const tx=db.transaction(storeName,'readwrite'),store=tx.objectStore(storeName),q=store.openCursor();q.onsuccess=()=>{const cursor=q.result;if(!cursor)return;String(cursor.value?.user||'')===username?cursor.delete():null;cursor.continue()};tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}catch{}}
+async function pruneLocalCache(){const username=localCacheUser();if(!username)return;try{const db=await openLocalCache();const trim=async(storeName,maxCount,maxBytes=Infinity)=>new Promise((resolve,reject)=>{const tx=db.transaction(storeName,'readwrite'),store=tx.objectStore(storeName),items=[],q=store.openCursor();q.onsuccess=()=>{const cursor=q.result;if(cursor){if(cursor.value?.user===username)items.push(cursor.value);cursor.continue();return}items.sort((a,b)=>(b.accessed||0)-(a.accessed||0));let bytes=0;items.forEach((item,index)=>{bytes+=Number(item.size||0);if(index>=maxCount||bytes>maxBytes)store.delete(item.key)})};tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});await trim('conversations',MAX_LOCAL_CONVERSATIONS);await trim('images',MAX_LOCAL_IMAGES,MAX_LOCAL_IMAGE_BYTES)}catch{}}
+function conversationLocalKey(id){const user=localCacheUser();return user?`${user}:conversation:${id}`:null}
+function imageLocalKey(id){const user=localCacheUser();return user&&id?`${user}:image:${id}`:null}
+async function readLocalConversation(id){const key=conversationLocalKey(id);if(!key)return null;const item=await localCacheGet('conversations',key);if(item){item.accessed=Date.now();localCachePut('conversations',item)}return item||null}
+async function saveLocalConversation(id,data,images){const key=conversationLocalKey(id);if(!key||!data?.conversation)return;let storedImages=Array.isArray(images)?images:null;if(storedImages===null){const previous=await localCacheGet('conversations',key);storedImages=Array.isArray(previous?.images)?previous.images:[]}localCachePut('conversations',{key,user:localCacheUser(),conversationId:id,data,images:storedImages,updated:Date.now(),accessed:Date.now()}).then(()=>pruneLocalCache())}
+async function readLocalImage(imageId){const key=imageLocalKey(imageId);if(!key)return null;const item=await localCacheGet('images',key);if(item?.blob){item.accessed=Date.now();localCachePut('images',item);return item.blob}return null}
+function saveLocalImage(imageId,blob){const key=imageLocalKey(imageId);if(!key||!blob||!blob.size)return;localCachePut('images',{key,user:localCacheUser(),imageId,blob,size:blob.size,accessed:Date.now(),created:Date.now()}).then(()=>pruneLocalCache())}
+function clearLocalImageUrls(){for(const url of localImageObjectUrls)URL.revokeObjectURL(url);localImageObjectUrls.clear()}
+function logout(show=true){const username=localCacheUser();conversationCoreCache.clear();conversationCoreRequests.clear();clearLocalImageUrls();localCacheDeleteUser(username);auth=null;userProfile=null;current=null;history=[];storageRemove('pi_ai_auth');$('profileName').textContent=I18N[lang].guest;$('profileState').textContent=I18N[lang].signPi;$('credits').textContent='0';$('chats').innerHTML='';$('loginBtn').querySelector('span:last-child').textContent=I18N[lang].login;render();if(show)toast(lang==='ar'?'تم تسجيل الخروج':'Signed out')}
 async function refreshMe(){const d=await api('/api/me');userProfile=d.user;renderAccountState()}
-async function loadChats(){const d=await api('/api/conversations');$('chats').innerHTML=(d.conversations||[]).map(c=>`<div class="chat-item ${c.id===current?'active':''}" data-id="${c.id}">${ICONS.chat}<span>${esc(c.title)}</span><button class="chat-delete" data-delete="${c.id}" title="${lang==='ar'?'حذف الدردشة':'Delete chat'}">×</button></div>`).join('');$('chats').querySelectorAll('.chat-item').forEach(b=>b.onclick=e=>{if(!e.target.closest('[data-delete]'))openChat(b.dataset.id)});$('chats').querySelectorAll('[data-delete]').forEach(b=>b.onclick=e=>{e.stopPropagation();deleteChat(b.dataset.delete)})}
+const conversationCoreCache=new Map(),conversationCoreRequests=new Map();
+function fetchConversationCore(id,{force=false}={}){
+  if(!force&&conversationCoreCache.has(id))return Promise.resolve(conversationCoreCache.get(id));
+  if(!force&&conversationCoreRequests.has(id))return conversationCoreRequests.get(id);
+  const request=api('/api/conversations?id='+encodeURIComponent(id)+'&includeImages=0').then(data=>{conversationCoreCache.set(id,data);saveLocalConversation(id,data);return data}).finally(()=>conversationCoreRequests.delete(id));
+  conversationCoreRequests.set(id,request);return request;
+}
+function prefetchConversationCore(id){
+  const run=()=>fetchConversationCore(id).catch(()=>{});
+  if('requestIdleCallback'in window)requestIdleCallback(run,{timeout:900});else setTimeout(run,120);
+}
+async function loadChats(){const d=await api('/api/conversations');$('chats').innerHTML=(d.conversations||[]).map(c=>`<div class="chat-item ${c.id===current?'active':''}" data-id="${c.id}">${ICONS.chat}<span>${esc(c.title)}</span><button class="chat-delete" data-delete="${c.id}" title="${lang==='ar'?'حذف الدردشة':'Delete chat'}">×</button></div>`).join('');$('chats').querySelectorAll('.chat-item').forEach(b=>{b.onclick=e=>{if(!e.target.closest('[data-delete]'))openChat(b.dataset.id)};b.onpointerenter=()=>prefetchConversationCore(b.dataset.id)});$('chats').querySelectorAll('[data-delete]').forEach(b=>b.onclick=e=>{e.stopPropagation();deleteChat(b.dataset.delete)})}
 async function newChat(){if(!auth)return login();current=null;history=[];render();try{await loadChats()}catch(e){toast(friendlyClientError(e,lang==='ar'?'تعذر تحديث قائمة الدردشات. يمكنك بدء المحادثة الآن.':'The chat list could not be refreshed. You can still start chatting.').message)}closeMenu();$('prompt').focus()}
 let chatOpenSequence=0,deferHistoricalImages=false;
+function applyConversationCore(data,sequence){
+  if(sequence!==chatOpenSequence||!data?.conversation)return false;
+  history=(data.conversation.messages||[]).map(m=>({...m,attachments:m.token_usage?.attachments||[],generatedImage:null}));
+  $('model').value=data.conversation.model_id||$('model').value;
+  render();return true;
+}
 async function openChat(id){
   const sequence=++chatOpenSequence;
-  current=id;history=[];render();closeMenu();
+  const cached=conversationCoreCache.get(id);
+  clearLocalImageUrls();current=id;history=[];closeMenu();
+  if(cached)applyConversationCore(cached,sequence);else render();
   document.querySelectorAll('.chat-item').forEach(item=>item.classList.toggle('active',item.dataset.id===id));
+  const localTask=readLocalConversation(id);
+  if(!cached){
+    const local=await Promise.race([localTask,new Promise(resolve=>setTimeout(()=>resolve(null),90))]);
+    if(local?.data&&sequence===chatOpenSequence){conversationCoreCache.set(id,local.data);applyConversationCore(local.data,sequence);if(local.images?.length)applyConversationImages(local.images,id,sequence,true)}
+  }
   try{
-    const d=await api('/api/conversations?id='+encodeURIComponent(id));
-    if(sequence!==chatOpenSequence)return;
-    history=(d.conversation.messages||[]).map(m=>({...m,attachments:m.token_usage?.attachments||[],generatedImage:m.generated_images?.[0]||null}));
-    $('model').value=d.conversation.model_id||$('model').value;
-    deferHistoricalImages=true;render();deferHistoricalImages=false;
-    hydrateDeferredChatImages(sequence);
+    const d=await fetchConversationCore(id,{force:true});
+    if(!applyConversationCore(d,sequence))return;
+    loadConversationImages(id,sequence);
     loadChats().catch(e=>console.warn('Chat list refresh failed',e));
-  }catch(e){if(sequence===chatOpenSequence)toast(friendlyClientError(e,lang==='ar'?'تعذر فتح الدردشة. حاول مرة أخرى.':'The chat could not be opened. Please try again.').message)}
+  }catch(e){if(sequence===chatOpenSequence&&!history.length)toast(friendlyClientError(e,lang==='ar'?'تعذر فتح الدردشة. حاول مرة أخرى.':'The chat could not be opened. Please try again.').message)}
+}
+function applyConversationImages(images,id,sequence,fromCache=false){
+  if(sequence!==chatOpenSequence||current!==id)return false;
+  const byMessage=new Map();for(const image of images||[]){if(!byMessage.has(image.message_id))byMessage.set(image.message_id,image)}
+  let changed=false;history=history.map(message=>{const image=byMessage.get(message.id);if(!image)return message;changed=true;return {...message,generatedImage:image}});
+  if(!changed)return false;deferHistoricalImages=true;render();deferHistoricalImages=false;hydrateDeferredChatImages(sequence);return true;
+}
+async function loadConversationImages(id,sequence){
+  try{
+    const d=await api('/api/conversations?id='+encodeURIComponent(id)+'&imagesOnly=1');
+    if(sequence!==chatOpenSequence||current!==id)return;
+    const core=conversationCoreCache.get(id);saveLocalConversation(id,core,d.images||[]);
+    applyConversationImages(d.images||[],id,sequence);
+  }catch(e){console.warn('Conversation images could not be loaded',e)}
 }
 function welcome(){const en=lang==='en';return `<div class="welcome"><div class="hero-icon"><img src="/aiway-logo.png" alt="AiWay"></div><h1>${en?'How can I help you today?':'كيف أقدر أساعدك اليوم؟'}</h1><p>${en?'Choose the right AI model and ask in English, Arabic, or any language. Your conversations are stored securely in your account.':'اختر نموذج الذكاء الاصطناعي المناسب، واسأل بالعربية أو بأي لغة. محادثاتك محفوظة بأمان في حسابك.'}</p><div class="suggestions"><button class="suggestion" data-prompt="${en?'Create a practical marketing plan for a startup':'اكتب لي خطة تسويق عملية لمشروع ناشئ'}"><span class="sicon">${ICONS.sparkles}</span><span><b>${en?'Marketing plan':'خطة تسويق'}</b><small>${en?'A clear, actionable strategy':'استراتيجية واضحة قابلة للتنفيذ'}</small></span></button><button class="suggestion" data-prompt="${en?'Help me write and debug JavaScript code':'ساعدني في كتابة وتصحيح كود JavaScript'}"><span class="sicon">${ICONS.bot}</span><span><b>${en?'Coding help':'مساعدة برمجية'}</b><small>${en?'Code, explanations, and debugging':'كود، شرح، وتصحيح أخطاء'}</small></span></button><button class="suggestion" data-prompt="${en?'Summarize the following text into clear bullet points: ':'لخص لي النص التالي في نقاط واضحة: '}"><span class="sicon">${ICONS.chat}</span><span><b>${en?'Summarize text':'تلخيص النصوص'}</b><small>${en?'A fast, organized summary':'ملخص سريع ومنظم'}</small></span></button><button class="suggestion" data-prompt="${en?'Suggest digital business ideas for my market':'اقترح أفكار مشاريع رقمية مناسبة للسوق العربي'}"><span class="sicon">${ICONS.coin}</span><span><b>${en?'Business ideas':'أفكار مشاريع'}</b><small>${en?'Creative opportunities tailored to you':'فرص مبتكرة تناسب اهتماماتك'}</small></span></button></div></div>`}
 
@@ -737,19 +791,28 @@ function imageMarkup(m,i){
   const fallback=img.storage_status==='client_only';
   const notice=fallback?I18N[lang].storageFallbackNotice:I18N[lang].imageExpiryNotice;
   const src=esc(img.display_url||img.thumbnail_data),deferred=deferHistoricalImages;
-  return `<div class="generated-image-card${fallback?' storage-fallback':''}"><div class="image-expiry-note" role="note">${ICONS.clock||'⏱'}<span>${esc(notice)}</span></div><img ${deferred?`data-src="${src}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'/%3E" class="deferred-image"`:`src="${src}" loading="lazy" decoding="async"`} alt="${lang==='ar'?'صورة مولدة':'Generated image'}" data-preview-image="${i}" tabindex="0"><div class="generated-image-actions"><span>${esc(img.model_id||'AI image')}</span><button type="button" class="download-image" data-download-image="${i}">${lang==='ar'?'تنزيل':'Download'}</button></div></div>`;
+  return `<div class="generated-image-card${fallback?' storage-fallback':''}"><div class="image-expiry-note" role="note">${ICONS.clock||'⏱'}<span>${esc(notice)}</span></div><img ${deferred?`data-src="${src}" data-image-cache-id="${esc(img.id||'')}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'/%3E" class="deferred-image"`:`src="${src}" loading="lazy" decoding="async"`} alt="${lang==='ar'?'صورة مولدة':'Generated image'}" data-image-cache-id="${esc(img.id||'')}" data-preview-image="${i}" tabindex="0"><div class="generated-image-actions"><span>${esc(img.model_id||'AI image')}</span><button type="button" class="download-image" data-download-image="${i}">${lang==='ar'?'تنزيل':'Download'}</button></div></div>`;
 }
 
 async function hydrateDeferredChatImages(sequence){
   const images=[...$('messages').querySelectorAll('img[data-src]')];
   for(const image of images){
     if(sequence!==chatOpenSequence||!image.isConnected)return;
-    const src=image.dataset.src;if(!src)continue;
-    await new Promise(resolve=>{
-      const done=()=>{image.classList.add('loaded');image.removeAttribute('data-src');resolve()};
-      image.onload=done;image.onerror=done;image.src=src;
-    });
-    await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,30)));
+    const src=image.dataset.src,imageId=image.dataset.imageCacheId;if(!src)continue;
+    let localBlob=imageId?await readLocalImage(imageId):null;
+    if(sequence!==chatOpenSequence||!image.isConnected)return;
+    let displaySrc=src;
+    if(localBlob){displaySrc=URL.createObjectURL(localBlob);localImageObjectUrls.add(displaySrc)}
+    await new Promise(resolve=>{const done=()=>{image.classList.add('loaded');image.removeAttribute('data-src');resolve()};image.onload=done;image.onerror=done;image.src=displaySrc});
+    if(!localBlob&&imageId){fetch(src,{credentials:'omit'}).then(r=>r.ok?r.blob():null).then(blob=>blob&&saveLocalImage(imageId,blob)).catch(()=>{})}
+    await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,20)));
+  }
+}
+function cacheRenderedGeneratedImages(){
+  for(const image of $('messages').querySelectorAll('img[data-image-cache-id]:not([data-src])')){
+    const imageId=image.dataset.imageCacheId;if(!imageId||image.dataset.localCacheQueued==='1')continue;image.dataset.localCacheQueued='1';
+    const cache=()=>{const src=image.currentSrc||image.src;if(!src||src.startsWith('blob:'))return;readLocalImage(imageId).then(found=>{if(found)return;fetch(src,{credentials:'omit'}).then(r=>r.ok?r.blob():null).then(blob=>blob&&saveLocalImage(imageId,blob)).catch(()=>{})})};
+    image.complete?cache():image.addEventListener('load',cache,{once:true});
   }
 }
 function extractGeneratedFiles(text){
@@ -831,7 +894,7 @@ function render(){
   const box=$('messages'),stick=userPinnedToBottom||isNearBottom();
   if(!history.length){box.innerHTML=welcome();box.querySelectorAll('[data-prompt]').forEach(b=>b.onclick=()=>{$('prompt').value=b.dataset.prompt;$('prompt').focus();autoSize()});updateScrollLatestButton();return}
   box.innerHTML=history.map((m,i)=>{const isLive=streaming&&m.role==='assistant'&&i===history.length-1&&!m.generatedImage;return `<article class="msg ${m.role}${isLive?' streaming-msg':''}" data-message-index="${i}"><span class="avatar">${m.role==='user'?ICONS.user:ICONS.bot}</span><div class="bubble">${attachmentMarkup(m)}<div class="bubble-content${isLive&&m.content?' streaming':''}">${m.role==='assistant'?(m.uiCard?specialUiCardMarkup(m):(m.content?renderMarkdown(m.content):(m.imageGenerating?imageProgressMarkup(m):(isLive?progressMarkup(m):'')))):esc(m.content||'').replace(/\n/g,'<br>')}</div>${generatedFilesMarkup(m,i)}${imageMarkup(m,i)}${modelExecutionMarkup(m)}<div class="msg-actions" dir="${lang==='ar'?'rtl':'ltr'}"><button class="mini-btn" data-copy="${i}">${ICONS.copy} ${I18N[lang].copy}</button>${m.role==='assistant'?`<button class="mini-btn" data-redo="1">${ICONS.redo} ${I18N[lang].redo}</button>${i===history.length-1&&m.content&&!m.generatedImage?`<button class="mini-btn" data-continue="${i}">${ICONS.continue} ${I18N[lang].continueResponse}</button>`:''}`:''}</div></div></article>`}).join('');
-  bindMessageActions();box.querySelectorAll('[data-download-image]').forEach(b=>b.onclick=()=>downloadGeneratedImage(Number(b.dataset.downloadImage)));box.querySelectorAll('[data-preview-image]').forEach(img=>{const open=()=>openImagePreview(Number(img.dataset.previewImage));img.onclick=open;img.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open()}}});box.querySelectorAll('[data-download-ai-file]').forEach(b=>b.onclick=()=>{const [mi,fi]=b.dataset.downloadAiFile.split(':').map(Number);downloadGeneratedFile(mi,fi)});box.querySelectorAll('[data-preview-ai-file]').forEach(b=>b.onclick=()=>{const [mi,fi]=b.dataset.previewAiFile.split(':').map(Number);previewGeneratedFile(mi,fi)});box.querySelectorAll('[data-download-project]').forEach(b=>b.onclick=()=>downloadGeneratedProject(Number(b.dataset.downloadProject)));
+  bindMessageActions();cacheRenderedGeneratedImages();box.querySelectorAll('[data-download-image]').forEach(b=>b.onclick=()=>downloadGeneratedImage(Number(b.dataset.downloadImage)));box.querySelectorAll('[data-preview-image]').forEach(img=>{const open=()=>openImagePreview(Number(img.dataset.previewImage));img.onclick=open;img.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open()}}});box.querySelectorAll('[data-download-ai-file]').forEach(b=>b.onclick=()=>{const [mi,fi]=b.dataset.downloadAiFile.split(':').map(Number);downloadGeneratedFile(mi,fi)});box.querySelectorAll('[data-preview-ai-file]').forEach(b=>b.onclick=()=>{const [mi,fi]=b.dataset.previewAiFile.split(':').map(Number);previewGeneratedFile(mi,fi)});box.querySelectorAll('[data-download-project]').forEach(b=>b.onclick=()=>downloadGeneratedProject(Number(b.dataset.downloadProject)));
   requestAnimationFrame(()=>{if(stick)scrollToLatest('auto');else updateScrollLatestButton()});
 }
 let streamFrame=0,streamQueue='',streamTimer=0,streamDrainResolve=null;
@@ -1037,7 +1100,7 @@ async function exportChat(){if(!history.length)return toast(lang==='ar'?'لا ت
 function toggleWeb(){if(userProfile&&!userProfile.has_purchased)return toast(lang==='ar'?'بحث الويب متاح بعد أول عملية شراء.':'Web search unlocks after your first purchase.');webSearch=!webSearch;$('webPill').classList.toggle('on',webSearch);toast(webSearch?(lang==='ar'?'تم تفعيل بحث الويب':'Web search enabled'):(lang==='ar'?'تم إيقاف بحث الويب':'Web search disabled'))}
 function openPay(){if(!requirePiBrowser())return;if(!auth)return login();$('payModal').classList.add('open')}
 function renderPackages(){const box=document.querySelector('.packs');if(!box||!window.aiwayPackages)return;const labels=lang==='ar'?{starter:'أساسية',plus:'الأكثر توفيرًا',pro:'احترافية'}:{starter:'Starter',plus:'Best value',pro:'Pro'};box.innerHTML=Object.entries(window.aiwayPackages).map(([id,p])=>`<div class="pack ${id==='plus'?'featured':''}"><small>${labels[id]||id}</small><b>${Number(p.tokens).toLocaleString()}</b><small>AiWay Tokens</small><span class="pi-estimate">${p.amountPi?Math.round(Number(p.amountPi)):'--'} Pi</span><span class="usd-note">≈ $${p.usd}</span><button class="btn ${id==='plus'?'primary':'soft'}" onclick="buy('${id}')">${lang==='ar'?'شراء بـ Pi':'Buy with Pi'}</button></div>`).join('')}
-async function buy(packageId){if(!piReady||!window.Pi?.createPayment){await initPi();if(!piReady||!window.Pi?.createPayment)return toast(lang==='ar'?'الدفع متاح داخل Pi Browser فقط':'Payments are available in Pi Browser only')}const pkg=window.aiwayPackages?.[packageId];if(!pkg?.amountPi)return toast(lang==='ar'?'تعذر جلب سعر Pi الآن':'Could not retrieve the current Pi price');const btn=document.querySelector(`[onclick="buy('${packageId}')"]`);const original=btn?.textContent;if(btn){btn.disabled=true;btn.classList.add('loading');btn.textContent=lang==='ar'?'جاري التحويل للدفع':'Opening payment'}try{await authenticatePiForPayments({refreshSession:true,silentRecovery:false,requirePendingResolved:true});$('payModal').classList.remove('open');await Pi.createPayment({amount:Number(pkg.amountPi),memo:`Purchase ${Number(pkg.tokens).toLocaleString('en-US')} AiWay Tokens for $${pkg.usd}`,metadata:{packageId,usd:pkg.usd,tokens:pkg.tokens,piUsd:pkg.piUsd}}, {onReadyForServerApproval:paymentId=>api('/api/payment-approve',{method:'POST',body:JSON.stringify({paymentId,packageId})}),onReadyForServerCompletion:async(paymentId,txid)=>{await api('/api/payment-complete',{method:'POST',body:JSON.stringify({paymentId,txid,packageId})});await Promise.all([refreshMe(),loadModels()]);toast(lang==='ar'?'تمت إضافة الرصيد وفتح جميع النماذج':'Balance added and all models unlocked')},onCancel:()=>toast(lang==='ar'?'تم إلغاء الدفع':'Payment cancelled'),onError:e=>toast(friendlyClientError(e,lang==='ar'?'تعذر إتمام الدفع عبر Pi. حاول مرة أخرى.':'The Pi payment could not be completed. Try again.').message)})}catch(e){toast(friendlyClientError(e,lang==='ar'?'تعذر بدء الدفع عبر Pi. حاول مرة أخرى.':'Could not start the Pi payment. Try again.').message)}finally{if(btn){btn.disabled=false;btn.classList.remove('loading');btn.textContent=original}}}
+async function buy(packageId){if(!piReady||!window.Pi?.createPayment)return toast(lang==='ar'?'الدفع متاح داخل Pi Browser فقط':'Payments are available in Pi Browser only');const pkg=window.aiwayPackages?.[packageId];if(!pkg?.amountPi)return toast(lang==='ar'?'تعذر جلب سعر Pi الآن':'Could not retrieve the current Pi price');const btn=document.querySelector(`[onclick="buy('${packageId}')"]`);const original=btn?.textContent;if(btn){btn.disabled=true;btn.classList.add('loading');btn.textContent=lang==='ar'?'جاري التحويل للدفع':'Opening payment'}try{await authenticatePiForPayments({refreshSession:true,silentRecovery:false,requirePendingResolved:true});$('payModal').classList.remove('open');await Pi.createPayment({amount:Number(pkg.amountPi),memo:`Purchase ${Number(pkg.tokens).toLocaleString('en-US')} AiWay Tokens for $${pkg.usd}`,metadata:{packageId,usd:pkg.usd,tokens:pkg.tokens,piUsd:pkg.piUsd}}, {onReadyForServerApproval:paymentId=>api('/api/payment-approve',{method:'POST',body:JSON.stringify({paymentId,packageId})}),onReadyForServerCompletion:async(paymentId,txid)=>{await api('/api/payment-complete',{method:'POST',body:JSON.stringify({paymentId,txid,packageId})});await Promise.all([refreshMe(),loadModels()]);toast(lang==='ar'?'تمت إضافة الرصيد وفتح جميع النماذج':'Balance added and all models unlocked')},onCancel:()=>toast(lang==='ar'?'تم إلغاء الدفع':'Payment cancelled'),onError:e=>toast(friendlyClientError(e,lang==='ar'?'تعذر إتمام الدفع عبر Pi. حاول مرة أخرى.':'The Pi payment could not be completed. Try again.').message)})}catch(e){toast(friendlyClientError(e,lang==='ar'?'تعذر بدء الدفع عبر Pi. حاول مرة أخرى.':'Could not start the Pi payment. Try again.').message)}finally{if(btn){btn.disabled=false;btn.classList.remove('loading');btn.textContent=original}}}
 function autoSize(){const t=$('prompt');t.style.height='auto';t.style.height=Math.min(t.scrollHeight,180)+'px'}function closeMenu(){$('sidebar').classList.remove('open');$('backdrop').classList.remove('open')}
 const messagesBox=$('messages');
 messagesBox.addEventListener('scroll',()=>{userPinnedToBottom=isNearBottom();updateScrollLatestButton()},{passive:true});
