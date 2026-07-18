@@ -8,6 +8,48 @@ function safeFilename(value, extension) {
   return `${base.replace(/\.(png|jpe?g|webp)$/i, '')}.${extension}`;
 }
 
+
+async function cleanupExpiredImages(req, res) {
+  const expected = process.env.CRON_SECRET;
+  const auth = String(req.headers?.authorization || '');
+  if (!expected || auth !== `Bearer ${expected}`) throw new Error('UNAUTHORIZED');
+
+  const supabase = db();
+  const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: expired, error } = await supabase
+    .from('generated_images')
+    .select('id,storage_path')
+    .lt('created_at', cutoff)
+    .order('created_at', { ascending: true })
+    .limit(500);
+  if (error) throw error;
+
+  const rows = Array.isArray(expired) ? expired : [];
+  const storagePaths = rows.map(row => row.storage_path).filter(Boolean);
+  if (storagePaths.length) {
+    const { error: removeError } = await supabase.storage
+      .from('generated-images')
+      .remove(storagePaths);
+    if (removeError) throw removeError;
+  }
+
+  const ids = rows.map(row => row.id).filter(Boolean);
+  if (ids.length) {
+    const { error: deleteError } = await supabase
+      .from('generated_images')
+      .delete()
+      .in('id', ids);
+    if (deleteError) throw deleteError;
+  }
+
+  return json(res, 200, {
+    success: true,
+    deletedRecords: ids.length,
+    deletedFiles: storagePaths.length,
+    cutoff
+  });
+}
+
 async function prepareImageDownload(req, res) {
   const user = await requireUser(req);
   const imageId = cleanText(req.body?.imageId, 100);
@@ -160,6 +202,7 @@ export default async function handler(req, res) {
   let reservationUserId=null,reservationRequestId=null,reservationSupabase=null,reservationActive=false;
   try {
     const action = String(req.body?.action || req.query?.action || '');
+    if (action === 'cleanup-expired' && req.method === 'GET') return await cleanupExpiredImages(req, res);
     if (action === 'native-download' && req.method === 'GET') return await nativeImageDownload(req, res);
     if (action === 'prepare-download' && req.method === 'POST') return await prepareImageDownload(req, res);
     if (action === 'download') return await downloadImage(req, res);
