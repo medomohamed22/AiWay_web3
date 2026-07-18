@@ -131,6 +131,7 @@ export default async function handler(req, res) {
       created: model.created,
       type: 'chat',
       isFree: Boolean(model.isFree),
+      pricing: model.pricing || { prompt: null, completion: null },
       shortName: model.name,
       provider: model.family,
       providerLabel: model.familyLabel,
@@ -155,7 +156,7 @@ export default async function handler(req, res) {
           .filter(value => value !== undefined && value !== null && value !== '')
           .map(Number)
           .filter(Number.isFinite);
-        const explicitlyFree = /:free$/i.test(String(model.id)) || (pricingValues.length > 0 && pricingValues.every(value => value === 0));
+        const explicitlyFree = pricingValues.length > 0 && pricingValues.every(value => value === 0);
         return { ...model, isFree: explicitlyFree, locked: !unlocked && !explicitlyFree };
       }),
       tokenUsd: TOKEN_USD,

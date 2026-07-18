@@ -457,7 +457,7 @@ function normalizeModel(model, family) {
     family: family.key,
     familyLabel: family.label,
     tag: family.tag,
-    isFree: String(model.id || '').endsWith(':free') || (promptPrice === 0 && completionPrice === 0),
+    isFree: promptPrice === 0 && completionPrice === 0,
     pricing: {
       prompt: promptPrice,
       completion: completionPrice,
@@ -495,7 +495,7 @@ export async function getAvailableModels() {
     // Keep a curated, live set of 11 free chat models (Gemma plus ten more).
     // The list is discovered from OpenRouter so discontinued free endpoints disappear automatically.
     const freeCandidates = (payload.data || [])
-      .filter(model => isTextChatModel(model) && (String(model.id || '').endsWith(':free') || (Number(model.pricing?.prompt || 0) === 0 && Number(model.pricing?.completion || 0) === 0)))
+      .filter(model => isTextChatModel(model) && Number(model.pricing?.prompt) === 0 && Number(model.pricing?.completion) === 0)
       .map(model => {
         const family = FAMILY_CONFIG.find(f => String(model.id || '').startsWith(f.prefix)) || { key: String(model.id || '').split('/')[0], label: String(model.id || '').split('/')[0], tag: 'Free' };
         return normalizeModel(model, family);
@@ -513,7 +513,9 @@ export async function getAvailableModels() {
   }
 }
 
-export function isFreeModel(model) { return Boolean(model?.isFree || String(model?.id || '').endsWith(':free') || (Number(model?.pricing?.prompt || 0) === 0 && Number(model?.pricing?.completion || 0) === 0)); }
+export function isFreeModel(model) {
+  return Boolean(model && Number(model?.pricing?.prompt) === 0 && Number(model?.pricing?.completion) === 0);
+}
 
 export async function chooseAutoModel(text = '', { webSearch = false, hasAttachments = false } = {}) {
   const models = await getAvailableModels();
