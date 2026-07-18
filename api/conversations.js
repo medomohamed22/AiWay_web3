@@ -68,18 +68,34 @@ export default async function handler(req,res){
         const includeImages=String(req.query?.includeImages||'1')!=='0';
 
         if(imagesOnly){
-          const {data:images,error}=await s.from('generated_images').select('*')
-            .eq('conversation_id',id).eq('user_id',user.id).order('created_at',{ascending:true});
+          const {data:images,error}=await s.from('generated_images')
+            .select('id,message_id,conversation_id,model_id,width,height,thumbnail_data,storage_path,storage_status,created_at')
+            .eq('conversation_id',id).eq('user_id',user.id).order('created_at',{ascending:false});
           if(error)throw appError('DATABASE_ERROR',{},error);
-          const hydrated=await Promise.all((images||[]).map(async image=>{
-            const output={...image};
-            if(output.storage_path){
-              const {data:signed,error:signedError}=await s.storage.from('generated-images')
-                .createSignedUrl(output.storage_path,3600);
-              if(!signedError&&signed?.signedUrl)output.display_url=signed.signedUrl;
+
+          const hydrated=(images||[]).map(image=>({...image}));
+          const stored=hydrated.filter(image=>image.storage_path);
+          if(stored.length){
+            // One batch request is significantly faster for image-heavy chats.
+            // Keep the per-file fallback for older Supabase client versions.
+            let batchWorked=false;
+            try{
+              const paths=stored.map(image=>image.storage_path);
+              const {data:signedList,error:signedError}=await s.storage.from('generated-images')
+                .createSignedUrls(paths,3600);
+              if(!signedError&&Array.isArray(signedList)){
+                signedList.forEach((signed,index)=>{if(signed?.signedUrl)stored[index].display_url=signed.signedUrl});
+                batchWorked=true;
+              }
+            }catch(batchError){console.warn('Batch signed URLs unavailable',batchError)}
+            if(!batchWorked){
+              await Promise.all(stored.map(async image=>{
+                const {data:signed,error:signedError}=await s.storage.from('generated-images')
+                  .createSignedUrl(image.storage_path,3600);
+                if(!signedError&&signed?.signedUrl)image.display_url=signed.signedUrl;
+              }));
             }
-            return output;
-          }));
+          }
           return json(res,200,{images:hydrated});
         }
 
