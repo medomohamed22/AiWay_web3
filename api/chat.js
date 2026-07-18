@@ -1,4 +1,4 @@
-import { affordableOutputLimit, allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, estimateChatCharge, fetchWithTimeout, getAvailableModels, getModel, getTrialModelId, handleError, isLowBalance, localize, openRouterError, requestLocale, requireUser, shouldTryModelFallback, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens, chooseAutoModel, isFreeModel, claimFreeDailyUse } from './_lib.js';
+import { affordableOutputLimit, allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, estimateChatCharge, fetchWithTimeout, getAvailableModels, getModel, getTrialModelId, handleError, isLowBalance, localize, openRouterError, requestLocale, requireUser, shouldTryModelFallback, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens, chooseAutoModel, isFreeModel, claimFreeDailyUse, createDownloadTicket, verifyDownloadTicket } from './_lib.js';
 
 function extractDownloadableFiles(text) {
   const files = [];
@@ -51,6 +51,51 @@ function makeStoreZip(files) {
   }
   const centralSize = central.reduce((n,b)=>n+b.length,0); const end=Buffer.alloc(22); end.writeUInt32LE(0x06054b50,0); end.writeUInt16LE(files.length,8); end.writeUInt16LE(files.length,10); end.writeUInt32LE(centralSize,12); end.writeUInt32LE(offset,16); return Buffer.concat([...local,...central,end]);
 }
+async function getOwnedAssistantMessage(messageId, userId) {
+  const { data: message, error } = await db().from('messages')
+    .select('id,content,role').eq('id', messageId).eq('user_id', userId).eq('role', 'assistant').single();
+  if (error || !message) throw new Error('FILE_NOT_FOUND');
+  return message;
+}
+
+async function prepareNativeDownload(req, res) {
+  const user = await requireUser(req);
+  const messageId = cleanText(req.body?.messageId, 100);
+  const kind = req.body?.kind === 'project' ? 'project' : 'file';
+  const fileIndex = Number(req.body?.fileIndex ?? 0);
+  if (!messageId || (kind === 'file' && (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 7))) throw appError('INVALID_REQUEST');
+  const message = await getOwnedAssistantMessage(messageId, user.id);
+  const files = extractDownloadableFiles(message.content);
+  if (!files.length || (kind === 'file' && !files[fileIndex])) throw new Error('FILE_NOT_FOUND');
+  const ticket = await createDownloadTicket({ sub: user.id, messageId, kind, fileIndex }, '2m');
+  res.status(200).setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  return res.end(JSON.stringify({ url: `/api/chat?action=native-download&ticket=${encodeURIComponent(ticket)}` }));
+}
+
+async function nativeDownload(req, res) {
+  const ticket = await verifyDownloadTicket(req.query?.ticket);
+  const message = await getOwnedAssistantMessage(String(ticket.messageId), String(ticket.sub));
+  const files = extractDownloadableFiles(message.content);
+  let body, filename, contentType;
+  if (ticket.kind === 'project') {
+    if (!files.length) throw new Error('FILE_NOT_FOUND');
+    body = makeStoreZip(files); filename = 'aiway-project.zip'; contentType = 'application/zip';
+  } else {
+    const fileIndex = Number(ticket.fileIndex);
+    const file = files[fileIndex]; if (!file) throw new Error('FILE_NOT_FOUND');
+    filename = safeDownloadFilename(file.name); body = Buffer.from(file.content, 'utf8'); contentType = fileContentType(filename);
+  }
+  const asciiName = filename.replace(/[^a-zA-Z0-9._-]/g, '-') || 'aiway-download';
+  res.status(200);
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Length', String(body.length));
+  res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  return res.end(body);
+}
+
 async function downloadGeneratedProject(req,res) {
   const messageId=String(req.query?.messageId||req.body?.messageId||''); if(!messageId) throw new Error('UNAUTHORIZED');
   const user=await requireUser(req);
@@ -107,6 +152,8 @@ export default async function handler(req, res) {
   let reservationUserId = null, reservationRequestId = null, reservationSupabase = null, reservationActive = false;
   try {
     const downloadAction = String(req.query?.action || req.body?.action || '');
+    if (req.method === 'GET' && downloadAction === 'native-download') return await nativeDownload(req, res);
+    if (req.method === 'POST' && downloadAction === 'prepare-download') return await prepareNativeDownload(req, res);
     if ((req.method === 'GET' || req.method === 'POST') && downloadAction === 'download-file') return await downloadGeneratedFile(req, res);
     if ((req.method === 'GET' || req.method === 'POST') && downloadAction === 'download-project') return await downloadGeneratedProject(req, res);
     if (req.method !== 'POST') throw appError('INVALID_REQUEST');

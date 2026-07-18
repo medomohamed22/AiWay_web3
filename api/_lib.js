@@ -74,6 +74,29 @@ export async function signAppToken(user) {
     .sign(new TextEncoder().encode(jwtSecret));
 }
 
+export async function createDownloadTicket(payload, expiresIn = '2m') {
+  requireEnv();
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setAudience('aiway-download')
+    .setIssuedAt()
+    .setExpirationTime(expiresIn)
+    .sign(new TextEncoder().encode(jwtSecret));
+}
+
+export async function verifyDownloadTicket(token) {
+  requireEnv();
+  if (!token) throw appError('UNAUTHORIZED');
+  try {
+    const { payload } = await jwtVerify(String(token), new TextEncoder().encode(jwtSecret), { audience: 'aiway-download' });
+    if (!payload.sub || !payload.messageId || !payload.kind) throw appError('UNAUTHORIZED');
+    return payload;
+  } catch (error) {
+    if (error?.code === 'UNAUTHORIZED') throw error;
+    throw appError('UNAUTHORIZED', {}, error);
+  }
+}
+
 export async function requireUser(req) {
   requireEnv();
   const authorization = req.headers.authorization || '';
