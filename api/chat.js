@@ -52,15 +52,15 @@ function makeStoreZip(files) {
   const centralSize = central.reduce((n,b)=>n+b.length,0); const end=Buffer.alloc(22); end.writeUInt32LE(0x06054b50,0); end.writeUInt16LE(files.length,8); end.writeUInt16LE(files.length,10); end.writeUInt32LE(centralSize,12); end.writeUInt32LE(offset,16); return Buffer.concat([...local,...central,end]);
 }
 async function downloadGeneratedProject(req,res) {
-  const messageId=String(req.query?.messageId||''); if(!messageId) throw new Error('UNAUTHORIZED');
+  const messageId=String(req.query?.messageId||req.body?.messageId||''); if(!messageId) throw new Error('UNAUTHORIZED');
   const user=await requireUser(req);
   const {data:message,error}=await db().from('messages').select('id,content,role').eq('id',messageId).eq('user_id',user.id).eq('role','assistant').single(); if(error||!message) throw new Error('FILE_NOT_FOUND');
   const files=extractDownloadableFiles(message.content); if(!files.length) throw new Error('FILE_NOT_FOUND'); const body=makeStoreZip(files);
   res.status(200); res.setHeader('Content-Type','application/zip'); res.setHeader('Content-Length',String(body.length)); res.setHeader('Content-Disposition',`attachment; filename="aiway-project.zip"`); res.setHeader('Cache-Control','private, no-store, max-age=0'); return res.end(body);
 }
 async function downloadGeneratedFile(req, res) {
-  const messageId = String(req.query?.messageId || '');
-  const fileIndex = Number(req.query?.fileIndex);
+  const messageId = String(req.query?.messageId || req.body?.messageId || '');
+  const fileIndex = Number(req.query?.fileIndex ?? req.body?.fileIndex);
   if (!messageId || !Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 7) throw new Error('UNAUTHORIZED');
 
   const user = await requireUser(req);
@@ -106,8 +106,9 @@ export default async function handler(req, res) {
   const uiLocale = requestLocale(req);
   let reservationUserId = null, reservationRequestId = null, reservationSupabase = null, reservationActive = false;
   try {
-    if (req.method === 'GET' && String(req.query?.action || '') === 'download-file') return await downloadGeneratedFile(req, res);
-    if (req.method === 'GET' && String(req.query?.action || '') === 'download-project') return await downloadGeneratedProject(req, res);
+    const downloadAction = String(req.query?.action || req.body?.action || '');
+    if ((req.method === 'GET' || req.method === 'POST') && downloadAction === 'download-file') return await downloadGeneratedFile(req, res);
+    if ((req.method === 'GET' || req.method === 'POST') && downloadAction === 'download-project') return await downloadGeneratedProject(req, res);
     if (req.method !== 'POST') throw appError('INVALID_REQUEST');
 
     const user = await requireUser(req);

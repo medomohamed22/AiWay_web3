@@ -51,7 +51,13 @@ export async function signAppToken(user) {
 export async function requireUser(req) {
   requireEnv();
   const authorization = req.headers.authorization || '';
-  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  const headerToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  // Native browser downloads cannot attach an Authorization header. For the two
+  // attachment-only POST routes, the signed app token is sent in the HTTPS form body.
+  const bodyToken = req.method === 'POST' && String(req.body?.action || '').startsWith('download-')
+    ? String(req.body?.authToken || '')
+    : '';
+  const token = headerToken || bodyToken;
   if (!token) throw appError('UNAUTHORIZED');
   try {
     const { payload } = await jwtVerify(token, new TextEncoder().encode(jwtSecret));
@@ -105,27 +111,6 @@ export async function requireAdminToken(req) {
   } catch (error) {
     if (error?.code === 'FORBIDDEN') throw error;
     throw appError('UNAUTHORIZED', {}, error);
-  }
-}
-
-
-export async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
-  const controller = new AbortController();
-  const externalSignal = options.signal;
-  const abortFromExternal = () => controller.abort();
-  if (externalSignal) {
-    if (externalSignal.aborted) controller.abort();
-    else externalSignal.addEventListener('abort', abortFromExternal, { once: true });
-  }
-  const timer = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 15000));
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } catch (error) {
-    if (controller.signal.aborted && !externalSignal?.aborted) throw appError('REQUEST_TIMEOUT', {}, error);
-    throw error;
-  } finally {
-    clearTimeout(timer);
-    externalSignal?.removeEventListener?.('abort', abortFromExternal);
   }
 }
 
