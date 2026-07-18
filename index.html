@@ -664,14 +664,31 @@ async function openChat(id){
   current=id;history=[];render();closeMenu();
   document.querySelectorAll('.chat-item').forEach(item=>item.classList.toggle('active',item.dataset.id===id));
   try{
-    const d=await api('/api/conversations?id='+encodeURIComponent(id));
+    const d=await api('/api/conversations?id='+encodeURIComponent(id)+'&includeImages=0');
     if(sequence!==chatOpenSequence)return;
-    history=(d.conversation.messages||[]).map(m=>({...m,attachments:m.token_usage?.attachments||[],generatedImage:m.generated_images?.[0]||null}));
+    history=(d.conversation.messages||[]).map(m=>({...m,attachments:m.token_usage?.attachments||[],generatedImage:null}));
     $('model').value=d.conversation.model_id||$('model').value;
-    deferHistoricalImages=true;render();deferHistoricalImages=false;
-    hydrateDeferredChatImages(sequence);
+    render();
+    loadConversationImages(id,sequence);
     loadChats().catch(e=>console.warn('Chat list refresh failed',e));
   }catch(e){if(sequence===chatOpenSequence)toast(friendlyClientError(e,lang==='ar'?'تعذر فتح الدردشة. حاول مرة أخرى.':'The chat could not be opened. Please try again.').message)}
+}
+async function loadConversationImages(id,sequence){
+  try{
+    const d=await api('/api/conversations?id='+encodeURIComponent(id)+'&imagesOnly=1');
+    if(sequence!==chatOpenSequence||current!==id)return;
+    const byMessage=new Map();
+    for(const image of d.images||[]){if(!byMessage.has(image.message_id))byMessage.set(image.message_id,image)}
+    let changed=false;
+    history=history.map(message=>{
+      const image=byMessage.get(message.id);
+      if(!image)return message;
+      changed=true;return {...message,generatedImage:image};
+    });
+    if(!changed)return;
+    deferHistoricalImages=true;render();deferHistoricalImages=false;
+    hydrateDeferredChatImages(sequence);
+  }catch(e){console.warn('Conversation images could not be loaded',e)}
 }
 function welcome(){const en=lang==='en';return `<div class="welcome"><div class="hero-icon"><img src="/aiway-logo.png" alt="AiWay"></div><h1>${en?'How can I help you today?':'كيف أقدر أساعدك اليوم؟'}</h1><p>${en?'Choose the right AI model and ask in English, Arabic, or any language. Your conversations are stored securely in your account.':'اختر نموذج الذكاء الاصطناعي المناسب، واسأل بالعربية أو بأي لغة. محادثاتك محفوظة بأمان في حسابك.'}</p><div class="suggestions"><button class="suggestion" data-prompt="${en?'Create a practical marketing plan for a startup':'اكتب لي خطة تسويق عملية لمشروع ناشئ'}"><span class="sicon">${ICONS.sparkles}</span><span><b>${en?'Marketing plan':'خطة تسويق'}</b><small>${en?'A clear, actionable strategy':'استراتيجية واضحة قابلة للتنفيذ'}</small></span></button><button class="suggestion" data-prompt="${en?'Help me write and debug JavaScript code':'ساعدني في كتابة وتصحيح كود JavaScript'}"><span class="sicon">${ICONS.bot}</span><span><b>${en?'Coding help':'مساعدة برمجية'}</b><small>${en?'Code, explanations, and debugging':'كود، شرح، وتصحيح أخطاء'}</small></span></button><button class="suggestion" data-prompt="${en?'Summarize the following text into clear bullet points: ':'لخص لي النص التالي في نقاط واضحة: '}"><span class="sicon">${ICONS.chat}</span><span><b>${en?'Summarize text':'تلخيص النصوص'}</b><small>${en?'A fast, organized summary':'ملخص سريع ومنظم'}</small></span></button><button class="suggestion" data-prompt="${en?'Suggest digital business ideas for my market':'اقترح أفكار مشاريع رقمية مناسبة للسوق العربي'}"><span class="sicon">${ICONS.coin}</span><span><b>${en?'Business ideas':'أفكار مشاريع'}</b><small>${en?'Creative opportunities tailored to you':'فرص مبتكرة تناسب اهتماماتك'}</small></span></button></div></div>`}
 
