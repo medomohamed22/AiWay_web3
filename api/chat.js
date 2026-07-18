@@ -111,7 +111,8 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') throw appError('INVALID_REQUEST');
 
     const user = await requireUser(req);
-    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [], requestId: rawRequestId } = req.body || {};
+    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [], requestId: rawRequestId, continueFromMessageId: rawContinueFromMessageId } = req.body || {};
+    const continueFromMessageId = cleanText(rawContinueFromMessageId, 80);
     const requestId = normalizeRequestId(rawRequestId);
     reservationUserId = user.id; reservationRequestId = requestId;
     if (!conversationId || !modelId || !Array.isArray(messages)) throw appError('INVALID_CHAT_REQUEST');
@@ -123,6 +124,23 @@ export default async function handler(req, res) {
     const supabase = db();
     reservationSupabase = supabase;
     await ensureConversationOwner(supabase, conversationId, user.id);
+    let continuationTarget = null;
+    if (continueFromMessageId) {
+      const { data, error } = await supabase.from('messages')
+        .select('id,content,model_id,token_usage,created_at')
+        .eq('id', continueFromMessageId)
+        .eq('conversation_id', conversationId)
+        .eq('user_id', user.id)
+        .eq('role', 'assistant')
+        .single();
+      if (error || !data) throw appError('INVALID_CHAT_REQUEST', {}, error);
+      const { data: newerMessages, error: newerError } = await supabase.from('messages')
+        .select('id').eq('conversation_id', conversationId).eq('user_id', user.id)
+        .gt('created_at', data.created_at).limit(1);
+      if (newerError) throw appError('DATABASE_ERROR', {}, newerError);
+      if (newerMessages?.length) throw appError('INVALID_CHAT_REQUEST');
+      continuationTarget = data;
+    }
     const { data: profile, error: profileError } = await supabase
       .from('users')
       .select('ai_tokens,trial_messages_remaining,has_purchased')
@@ -143,6 +161,13 @@ export default async function handler(req, res) {
         content: cleanText(message.content, 30000)
       }))
       .filter(message => message.content);
+
+    if (continuationTarget) {
+      const continuationInstruction = localize(uiLocale,
+        'أكمل الإجابة السابقة مباشرة من حيث توقفت. لا تكرر أي جزء مكتوب، ولا تبدأ بمقدمة جديدة، وحافظ على نفس اللغة والأسلوب والتنسيق.',
+        'Continue the previous answer directly from where it stopped. Do not repeat any existing text, do not add a new introduction, and keep the same language, style, and formatting.');
+      cleaned.push({ role: 'user', content: continuationInstruction });
+    }
 
     const sourceAttachments = Array.isArray(attachments) ? attachments.slice(0, 3) : [];
     const invalidAttachment = sourceAttachments.some(a => !a || typeof a.name !== 'string' || typeof a.type !== 'string' || typeof a.dataUrl !== 'string' || !a.dataUrl.startsWith('data:'));
@@ -197,7 +222,7 @@ export default async function handler(req, res) {
     await reserveAiTokens(supabase, user.id, requestId, 'chat', availableTokens);
     reservationActive = true;
 
-    const lastUserMessage = [...cleaned].reverse().find(message => message.role === 'user');
+    const lastUserMessage = continuationTarget ? null : [...cleaned].reverse().find(message => message.role === 'user');
     if (lastUserMessage) {
       const { error } = await supabase.from('messages').insert({
         conversation_id: conversationId,
@@ -331,24 +356,47 @@ export default async function handler(req, res) {
       });
     }
 
-    const { data: savedAssistant, error: saveAssistantError } = await supabase.from('messages').insert({
-      conversation_id: conversationId,
-      user_id: user.id,
-      role: 'assistant',
-      content: answer,
-      model_id: activeModelId,
-      token_usage: {
-        ...usage,
-        ...charge,
-        requestedModelId: modelId,
-        autoSelected,
-        activeModelId,
-        fallbackUsed,
-        routedModelId: routedModelId || activeModelId,
-        generationId: generationId || null,
-        routerMetadata
-      }
-    }).select('id').single();
+    const previousUsage = continuationTarget?.token_usage && typeof continuationTarget.token_usage === 'object' ? continuationTarget.token_usage : {};
+    const previousChargedTokens = Math.max(0, Number(previousUsage.chargedTokens || 0));
+    const continuationCount = Math.max(0, Number(previousUsage.continuations || 0)) + (continuationTarget ? 1 : 0);
+    const savedTokenUsage = {
+      ...previousUsage,
+      ...usage,
+      ...charge,
+      chargedTokens: previousChargedTokens + charge.chargedTokens,
+      lastContinuationChargedTokens: continuationTarget ? charge.chargedTokens : undefined,
+      continuations: continuationCount,
+      requestedModelId: modelId,
+      autoSelected,
+      activeModelId,
+      fallbackUsed,
+      routedModelId: routedModelId || activeModelId,
+      generationId: generationId || null,
+      routerMetadata
+    };
+    let savedAssistant;
+    let saveAssistantError;
+    if (continuationTarget) {
+      const combinedContent = `${String(continuationTarget.content || '').replace(/\s+$/, '')}\n\n${answer.trim()}`;
+      const result = await supabase.from('messages').update({
+        content: combinedContent,
+        model_id: activeModelId,
+        token_usage: savedTokenUsage
+      }).eq('id', continuationTarget.id).eq('conversation_id', conversationId).eq('user_id', user.id).select('id').single();
+      savedAssistant = result.data;
+      saveAssistantError = result.error;
+    } else {
+      const result = await supabase.from('messages').insert({
+        conversation_id: conversationId,
+        user_id: user.id,
+        role: 'assistant',
+        content: answer,
+        model_id: activeModelId,
+        token_usage: savedTokenUsage
+      }).select('id').single();
+      savedAssistant = result.data;
+      saveAssistantError = result.error;
+    }
     if (saveAssistantError || !savedAssistant) throw appError('DATABASE_ERROR', {}, saveAssistantError);
 
     const remainingTokens = await finalizeAiTokens(supabase, user.id, requestId, charge.chargedTokens, {
@@ -373,7 +421,10 @@ export default async function handler(req, res) {
       fallbackUsed,
       activeModelId,
       generationId: generationId || null,
-      messageId: savedAssistant.id
+      messageId: savedAssistant.id,
+      continuation: Boolean(continuationTarget),
+      continuations: continuationCount,
+      totalChargedTokens: previousChargedTokens + charge.chargedTokens
     })}\n\n`);
     return res.end();
   } catch (error) {
