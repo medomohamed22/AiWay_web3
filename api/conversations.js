@@ -64,6 +64,25 @@ export default async function handler(req,res){
     if(req.method==='GET'){
       const id=String(req.query?.id||'');
       if(id){
+        const imagesOnly=String(req.query?.imagesOnly||'')==='1';
+        const includeImages=String(req.query?.includeImages||'1')!=='0';
+
+        if(imagesOnly){
+          const {data:images,error}=await s.from('generated_images').select('*')
+            .eq('conversation_id',id).eq('user_id',user.id).order('created_at',{ascending:true});
+          if(error)throw appError('DATABASE_ERROR',{},error);
+          const hydrated=await Promise.all((images||[]).map(async image=>{
+            const output={...image};
+            if(output.storage_path){
+              const {data:signed,error:signedError}=await s.storage.from('generated-images')
+                .createSignedUrl(output.storage_path,3600);
+              if(!signedError&&signed?.signedUrl)output.display_url=signed.signedUrl;
+            }
+            return output;
+          }));
+          return json(res,200,{images:hydrated});
+        }
+
         const {data:conversation,error:conversationError}=await s.from('conversations')
           .select('*').eq('id',id).eq('user_id',user.id).single();
         if(conversationError)throw appError('DATABASE_ERROR',{},conversationError);
@@ -72,6 +91,11 @@ export default async function handler(req,res){
           .select('*').eq('conversation_id',id).eq('user_id',user.id)
           .order('created_at',{ascending:true});
         if(messagesError)throw appError('DATABASE_ERROR',{},messagesError);
+
+        if(!includeImages){
+          conversation.messages=(messages||[]).map(message=>({...message,generated_images:[]}));
+          return json(res,200,{conversation});
+        }
 
         const messageIds=(messages||[]).map(message=>message.id);
         let images=[];
@@ -83,13 +107,17 @@ export default async function handler(req,res){
           images=data||[];
         }
 
-        const imagesByMessage=new Map();
-        for(const image of images){
-          if(image.storage_path){
+        const hydratedImages=await Promise.all(images.map(async image=>{
+          const output={...image};
+          if(output.storage_path){
             const {data:signed,error:signedError}=await s.storage.from('generated-images')
-              .createSignedUrl(image.storage_path,3600);
-            if(!signedError&&signed?.signedUrl)image.display_url=signed.signedUrl;
+              .createSignedUrl(output.storage_path,3600);
+            if(!signedError&&signed?.signedUrl)output.display_url=signed.signedUrl;
           }
+          return output;
+        }));
+        const imagesByMessage=new Map();
+        for(const image of hydratedImages){
           const list=imagesByMessage.get(image.message_id)||[];
           list.push(image);
           imagesByMessage.set(image.message_id,list);
