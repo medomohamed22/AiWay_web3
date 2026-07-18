@@ -655,7 +655,8 @@ function enhanceCodeBlocks(root=$('messages')){
     pre.dataset.enhanced='1';
     const code=pre.querySelector('code');
     const match=(code?.className||'').match(/language-([^\s]+)/);
-    const rawLanguage=match?.[1]||'code';const fileMatch=rawLanguage.match(/^file-(.+)$/);const isPptx=rawLanguage==='pptx-json';const language=fileMatch?'code':(isPptx?'PowerPoint':rawLanguage);
+    const rawLanguage=match?.[1]||'code';const fileMatch=rawLanguage.match(/^file-(.+)$/);const isPptx=rawLanguage==='pptx-json';
+    const language=pre.dataset.codeLabel||(fileMatch?'code':(isPptx?'PowerPoint':rawLanguage));
     const head=document.createElement('div');
     head.className='code-head';
     const label=document.createElement('span');
@@ -732,11 +733,11 @@ function specialUiCardMarkup(m){
 }
 function enhancePromptSections(html){
   const host=document.createElement('div');host.innerHTML=html;
-  const labelPattern=/^(?:prompt|image prompt|برومبت|البرومبت|وصف الصورة)\s*[:：]?$/i;
+  const labelPattern=/^(?:prompt|image prompt|system prompt|user prompt|negative prompt|برومبت|البرومبت|برومبت الصورة|وصف الصورة|تعليمات النظام)\s*[:：]?$/i;
   const blocks=[...host.children];
   for(let i=0;i<blocks.length;i++){
     const node=blocks[i];
-    if(node.classList?.contains('prompt-copy-block'))continue;
+    if(node.matches?.('pre'))continue;
     let label='',bodyNodes=[];
     const text=(node.textContent||'').trim();
     const strong=node.querySelector?.(':scope > strong:first-child');
@@ -745,22 +746,25 @@ function enhancePromptSections(html){
       label=text.replace(/[:：]\s*$/,'');
       for(let j=i+1;j<blocks.length;j++){
         const next=blocks[j],nextText=(next.textContent||'').trim();
-        if(!nextText||/^[-—]{3,}$/.test(nextText)||/^الخيار\s|^option\s/i.test(nextText)||/^#{1,6}\s/.test(nextText))break;
+        if(!nextText||/^[-—]{3,}$/.test(nextText)||/^الخيار\s|^option\s/i.test(nextText)||next.matches('h1,h2,h3,h4,h5,h6,hr,pre'))break;
         bodyNodes.push(next);
-        if(next.matches('h1,h2,h3,h4,h5,h6,hr')){bodyNodes.pop();break}
       }
     }else if(strong&&labelPattern.test(strongText)){
       label=strongText.replace(/[:：]\s*$/,'');
       const clone=node.cloneNode(true);clone.querySelector(':scope > strong:first-child')?.remove();
       if((clone.textContent||'').trim())bodyNodes=[clone];
-      else if(blocks[i+1])bodyNodes=[blocks[i+1]];
+      else if(blocks[i+1]&&!blocks[i+1].matches('h1,h2,h3,h4,h5,h6,hr,pre'))bodyNodes=[blocks[i+1]];
     }
     if(!label||!bodyNodes.length)continue;
-    const wrapper=document.createElement('section');wrapper.className='prompt-copy-block';
-    const body=document.createElement('div');body.className='prompt-copy-body';
-    bodyNodes.forEach(n=>body.appendChild(n.cloneNode(true)));
-    wrapper.innerHTML=`<div class="prompt-copy-head"><span class="prompt-copy-title">${esc(label)}</span><button type="button" class="prompt-copy-btn" data-copy-prompt="1" aria-label="${lang==='ar'?'نسخ البرومبت':'Copy prompt'}">${ICONS.copy}<span>${lang==='ar'?'نسخ':'Copy'}</span></button></div>`;
-    wrapper.appendChild(body);node.replaceWith(wrapper);
+    const promptText=bodyNodes.map(n=>(n.innerText||n.textContent||'').trim()).filter(Boolean).join('\n\n').trim();
+    if(!promptText)continue;
+    const pre=document.createElement('pre');
+    pre.dataset.codeLabel=label;
+    const code=document.createElement('code');
+    code.className='language-prompt';
+    code.textContent=promptText;
+    pre.appendChild(code);
+    node.replaceWith(pre);
     bodyNodes.forEach(n=>n.remove());
   }
   return host.innerHTML;
