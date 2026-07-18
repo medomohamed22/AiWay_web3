@@ -89,7 +89,7 @@ export async function verifyDownloadTicket(token) {
   if (!token) throw appError('UNAUTHORIZED');
   try {
     const { payload } = await jwtVerify(String(token), new TextEncoder().encode(jwtSecret), { audience: 'aiway-download' });
-    if (!payload.sub || !payload.messageId || !payload.kind) throw appError('UNAUTHORIZED');
+    if (!payload.sub || !payload.kind || (!payload.messageId && !payload.imageId)) throw appError('UNAUTHORIZED');
     return payload;
   } catch (error) {
     if (error?.code === 'UNAUTHORIZED') throw error;
