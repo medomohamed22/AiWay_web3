@@ -1,4 +1,4 @@
-import { allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, fetchWithTimeout, handleError, isLowBalance, json, localize, openRouterError, requestLocale, requireUser, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens, claimFreeDailyUse } from './_lib.js';
+import { allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, fetchWithTimeout, handleError, isLowBalance, json, localize, openRouterError, requestLocale, requireUser, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens, claimFreeDailyUse, createDownloadTicket, verifyDownloadTicket } from './_lib.js';
 
 function safeFilename(value, extension) {
   const base = String(value || `AiWay-${Date.now()}`)
@@ -8,11 +8,29 @@ function safeFilename(value, extension) {
   return `${base.replace(/\.(png|jpe?g|webp)$/i, '')}.${extension}`;
 }
 
-async function downloadImage(req, res) {
+async function prepareImageDownload(req, res) {
+  const user = await requireUser(req);
+  const imageId = cleanText(req.body?.imageId, 100);
+  if (!imageId) throw appError('INVALID_REQUEST');
+  const { data: image, error } = await db().from('generated_images').select('id').eq('id', imageId).eq('user_id', user.id).single();
+  if (error || !image) throw new Error('IMAGE_NOT_FOUND');
+  const ticket = await createDownloadTicket({ sub: user.id, imageId, kind: 'image' }, '2m');
+  return json(res, 200, { url: `/api/image?action=native-download&ticket=${encodeURIComponent(ticket)}` });
+}
+
+async function nativeImageDownload(req, res) {
+  const ticket = await verifyDownloadTicket(req.query?.ticket);
+  if (ticket.kind !== 'image' || !ticket.imageId || !ticket.sub) throw new Error('UNAUTHORIZED');
+  req.query.imageId = String(ticket.imageId);
+  req.downloadUserId = String(ticket.sub);
+  return downloadImage(req, res, true);
+}
+
+async function downloadImage(req, res, ticketed = false) {
   const imageId = String(req.body?.imageId || req.query?.imageId || '');
   if (!imageId) throw new Error('UNAUTHORIZED');
 
-  const user = await requireUser(req);
+  const user = ticketed ? { id: req.downloadUserId } : await requireUser(req);
 
   const { data: image, error } = await db()
     .from('generated_images')
@@ -142,6 +160,8 @@ export default async function handler(req, res) {
   let reservationUserId=null,reservationRequestId=null,reservationSupabase=null,reservationActive=false;
   try {
     const action = String(req.body?.action || req.query?.action || '');
+    if (action === 'native-download' && req.method === 'GET') return await nativeImageDownload(req, res);
+    if (action === 'prepare-download' && req.method === 'POST') return await prepareImageDownload(req, res);
     if (action === 'download') return await downloadImage(req, res);
     if (req.method === 'GET') throw appError('INVALID_IMAGE_REQUEST');
     if (action === 'persist') return await persistImage(req, res);
