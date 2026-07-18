@@ -477,7 +477,13 @@ export async function getAvailableModels() {
     const selected = [];
     for (const family of FAMILY_CONFIG) {
       const familyModels = (payload.data || [])
-        .filter(model => String(model.id || '').startsWith(family.prefix) && isTextChatModel(model))
+        .filter(model => {
+          if (!String(model.id || '').startsWith(family.prefix) || !isTextChatModel(model)) return false;
+          const promptPrice = Number(model.pricing?.prompt || 0);
+          const completionPrice = Number(model.pricing?.completion || 0);
+          const isZeroCost = promptPrice === 0 && completionPrice === 0;
+          return model.id === TRIAL_MODEL_FALLBACK || !isZeroCost;
+        })
         .map(model => normalizeModel(model, family))
         .sort((a, b) => b.created - a.created || a.name.localeCompare(b.name))
         .slice(0, 5);
@@ -492,19 +498,7 @@ export async function getAvailableModels() {
       const googleIndex = selected.findIndex(model => model.family === 'gemini');
       selected.splice(googleIndex >= 0 ? googleIndex : 0, 0, trialModel);
     }
-    // Keep a curated, live set of 11 free chat models (Gemma plus ten more).
-    // The list is discovered from OpenRouter so discontinued free endpoints disappear automatically.
-    const freeCandidates = (payload.data || [])
-      .filter(model => isTextChatModel(model) && Number(model.pricing?.prompt) === 0 && Number(model.pricing?.completion) === 0)
-      .map(model => {
-        const family = FAMILY_CONFIG.find(f => String(model.id || '').startsWith(f.prefix)) || { key: String(model.id || '').split('/')[0], label: String(model.id || '').split('/')[0], tag: 'Free' };
-        return normalizeModel(model, family);
-      })
-      .sort((a,b) => (/gemma/i.test(b.id)-/gemma/i.test(a.id)) || b.created-a.created);
-    for (const freeModel of freeCandidates.slice(0, 11)) {
-      const at = selected.findIndex(m => m.id === freeModel.id);
-      if (at >= 0) selected[at] = freeModel; else selected.unshift(freeModel);
-    }
+    // Only the official Gemma trial model is exposed as free.
     catalogCache = { at: Date.now(), models: selected };
     return selected;
   } catch (error) {
