@@ -455,7 +455,9 @@ const FAMILY_CONFIG = [
   { key: 'chatgpt', label: 'ChatGPT', prefix: 'openai/', tag: 'OpenAI' },
   { key: 'gemini', label: 'Gemini', prefix: 'google/', tag: 'Google' },
   { key: 'deepseek', label: 'DeepSeek', prefix: 'deepseek/', tag: 'DeepSeek' },
-  { key: 'claude', label: 'Claude', prefix: 'anthropic/', tag: 'Anthropic' }
+  { key: 'claude', label: 'Claude', prefix: 'anthropic/', tag: 'Anthropic' },
+  { key: 'grok', label: 'Grok', prefix: 'x-ai/', tag: 'xAI' },
+  { key: 'kimi', label: 'Kimi', prefix: 'moonshotai/', tag: 'Moonshot AI' }
 ];
 
 const FALLBACK_MODELS = [
@@ -470,7 +472,17 @@ const FALLBACK_MODELS = [
   { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', created: 1733011200, family: 'deepseek', tag: 'DeepSeek', pricing: { prompt: 0.00000027, completion: 0.0000011 } },
   { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet', created: 1740355200, family: 'claude', tag: 'Anthropic', pricing: { prompt: 0.000003, completion: 0.000015 } },
   { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', created: 1718841600, family: 'claude', tag: 'Anthropic', pricing: { prompt: 0.000003, completion: 0.000015 } },
-  { id: 'anthropic/claude-3.5-haiku', name: 'Claude 3.5 Haiku', created: 1729555200, family: 'claude', tag: 'Anthropic', pricing: { prompt: 0.0000008, completion: 0.000004 } }
+  { id: 'anthropic/claude-3.5-haiku', name: 'Claude 3.5 Haiku', created: 1729555200, family: 'claude', tag: 'Anthropic', pricing: { prompt: 0.0000008, completion: 0.000004 } },
+  { id: 'x-ai/grok-4', name: 'Grok 4', created: 1752105600, family: 'grok', tag: 'xAI', pricing: { prompt: 0.000003, completion: 0.000015 } },
+  { id: 'x-ai/grok-3', name: 'Grok 3', created: 1746057600, family: 'grok', tag: 'xAI', pricing: { prompt: 0.000003, completion: 0.000015 } },
+  { id: 'x-ai/grok-3-mini', name: 'Grok 3 Mini', created: 1746057500, family: 'grok', tag: 'xAI', pricing: { prompt: 0.0000003, completion: 0.0000005 } },
+  { id: 'x-ai/grok-3-beta', name: 'Grok 3 Beta', created: 1743465600, family: 'grok', tag: 'xAI', pricing: { prompt: 0.000003, completion: 0.000015 } },
+  { id: 'x-ai/grok-3-mini-beta', name: 'Grok 3 Mini Beta', created: 1743465500, family: 'grok', tag: 'xAI', pricing: { prompt: 0.0000003, completion: 0.0000005 } },
+  { id: 'moonshotai/kimi-k2-0905', name: 'Kimi K2 0905', created: 1757030400, family: 'kimi', tag: 'Moonshot AI', pricing: { prompt: 0.0000006, completion: 0.0000025 } },
+  { id: 'moonshotai/kimi-k2', name: 'Kimi K2', created: 1752192000, family: 'kimi', tag: 'Moonshot AI', pricing: { prompt: 0.0000006, completion: 0.0000025 } },
+  { id: 'moonshotai/kimi-dev-72b', name: 'Kimi Dev 72B', created: 1748736000, family: 'kimi', tag: 'Moonshot AI', pricing: { prompt: 0.0000003, completion: 0.0000012 } },
+  { id: 'moonshotai/moonlight-16b-a3b-instruct', name: 'Moonlight 16B A3B Instruct', created: 1740873600, family: 'kimi', tag: 'Moonshot AI', pricing: { prompt: 0.0000002, completion: 0.0000008 } },
+  { id: 'moonshotai/kimi-vl-a3b-thinking', name: 'Kimi VL A3B Thinking', created: 1746057400, family: 'kimi', tag: 'Moonshot AI', pricing: { prompt: 0.0000004, completion: 0.0000016 } }
 ];
 
 let catalogCache = { at: 0, models: FALLBACK_MODELS };
