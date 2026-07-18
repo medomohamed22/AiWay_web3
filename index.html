@@ -247,8 +247,8 @@ html[dir="ltr"] .intro-lang{right:max(14px,env(safe-area-inset-right))!important
 html[dir="rtl"] .intro-lang{left:max(14px,env(safe-area-inset-left))!important;right:auto!important}
 
 /* AiWay branded system dialog */
-.aiway-dialog-overlay{z-index:1200;background:rgba(28,14,39,.52);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:dialogFade .18s ease}
-.aiway-dialog{width:min(430px,calc(100vw - 28px));background:linear-gradient(180deg,#fff 0%,#fcf9ff 100%);border:1px solid rgba(111,45,189,.14);border-radius:26px;padding:22px;box-shadow:0 28px 90px rgba(43,22,59,.34);transform-origin:center;animation:dialogRise .22s cubic-bezier(.2,.8,.2,1)}
+.aiway-dialog-overlay{z-index:2147483000;background:rgba(28,14,39,.52);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:dialogFade .18s ease;pointer-events:none;isolation:isolate}.aiway-dialog-overlay.open{display:grid;pointer-events:auto}.aiway-dialog-overlay[aria-hidden="true"]{visibility:hidden}.aiway-dialog-overlay[aria-hidden="false"]{visibility:visible}
+.aiway-dialog{position:relative;z-index:1;width:min(430px,calc(100vw - 28px));background:linear-gradient(180deg,#fff 0%,#fcf9ff 100%);border:1px solid rgba(111,45,189,.14);border-radius:26px;padding:22px;box-shadow:0 28px 90px rgba(43,22,59,.34);transform-origin:center;animation:dialogRise .22s cubic-bezier(.2,.8,.2,1)}
 .aiway-dialog-brand{display:flex;align-items:center;gap:11px;margin-bottom:17px}.aiway-dialog-logo{width:46px;height:46px;border-radius:15px;object-fit:cover;box-shadow:0 10px 24px rgba(111,45,189,.22)}.aiway-dialog-brand-copy{min-width:0}.aiway-dialog-brand-copy b{display:block;font-size:16px}.aiway-dialog-brand-copy small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 .aiway-dialog-icon{width:48px;height:48px;border-radius:16px;display:grid;place-items:center;background:var(--pi3);color:var(--pi);margin-bottom:13px}.aiway-dialog-icon svg{width:25px;height:25px}.aiway-dialog.danger .aiway-dialog-icon{background:#fff0f3;color:var(--danger)}
 .aiway-dialog h3{margin:0 0 9px;font-size:21px;line-height:1.35}.aiway-dialog-message{margin:0;color:var(--muted);line-height:1.85;font-size:15px;white-space:pre-line}.aiway-dialog-note{display:none;margin-top:14px;padding:11px 12px;border-radius:14px;background:var(--pi3);color:#5c2c85;font-size:12px;line-height:1.65}.aiway-dialog-note.show{display:block}
@@ -329,24 +329,42 @@ function storageGet(key,fallback=null){try{const value=localStorage.getItem(key)
 const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._x);t._x=setTimeout(()=>t.classList.remove('show'),4200)}
 let aiwayDialogResolver=null;
-function closeAiwayDialog(result=false){const overlay=$('aiwayDialogOverlay');if(!overlay)return;if(aiwayDialogResolver){const resolve=aiwayDialogResolver;aiwayDialogResolver=null;overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true');document.body.classList.remove('dialog-open');setTimeout(()=>resolve(Boolean(result)),0)}}
+function closeAiwayDialog(result=false){
+  const overlay=$('aiwayDialogOverlay');
+  if(!overlay)return;
+  const resolve=aiwayDialogResolver;
+  aiwayDialogResolver=null;
+  overlay.classList.remove('open');
+  overlay.setAttribute('aria-hidden','true');
+  document.body.classList.remove('dialog-open');
+  if(resolve)setTimeout(()=>resolve(Boolean(result)),0);
+}
+function dialogIconMarkup(type){
+  if(type==='danger')return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  return ICONS.sparkles||'';
+}
 function showAiwayDialog(options={}){
   const overlay=$('aiwayDialogOverlay'),dialog=$('aiwayDialog');
   if(!overlay||!dialog)return Promise.resolve(false);
   if(aiwayDialogResolver)closeAiwayDialog(false);
   const isAr=lang==='ar',type=options.type||'info';
+  const brand=$('aiwayDialogBrandText'),title=$('aiwayDialogTitle'),message=$('aiwayDialogMessage');
+  const note=$('aiwayDialogNote'),cancel=$('aiwayDialogCancel'),confirmBtn=$('aiwayDialogConfirm'),iconBox=$('aiwayDialogIcon');
+  if(!brand||!title||!message||!note||!cancel||!confirmBtn||!iconBox)return Promise.resolve(false);
   dialog.classList.toggle('danger',type==='danger');
-  $('aiwayDialogBrandText').textContent=isAr?'مساعدك الذكي':'Your smart AI assistant';
-  $('aiwayDialogTitle').textContent=options.title||(isAr?'تأكيد الإجراء':'Confirm action');
-  $('aiwayDialogMessage').textContent=options.message||'';
-  const note=$('aiwayDialogNote');note.textContent=options.note||'';note.classList.toggle('show',Boolean(options.note));
-  const cancel=$('aiwayDialogCancel'),confirmBtn=$('aiwayDialogConfirm');
+  brand.textContent=isAr?'مساعدك الذكي':'Your smart AI assistant';
+  title.textContent=options.title||(isAr?'تأكيد الإجراء':'Confirm action');
+  message.textContent=options.message||'';
+  note.textContent=options.note||'';
+  note.classList.toggle('show',Boolean(options.note));
   cancel.textContent=options.cancelText||(isAr?'إلغاء':'Cancel');
   confirmBtn.textContent=options.confirmText||(isAr?'موافق':'Confirm');
   confirmBtn.classList.toggle('danger',type==='danger');
-  $('aiwayDialogIcon').innerHTML=icon(type==='danger'?'trash':'sparkles');
-  overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');document.body.classList.add('dialog-open');
-  setTimeout(()=>confirmBtn.focus(),40);
+  iconBox.innerHTML=dialogIconMarkup(type);
+  overlay.setAttribute('aria-hidden','false');
+  overlay.classList.add('open');
+  document.body.classList.add('dialog-open');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{try{confirmBtn.focus({preventScroll:true})}catch{confirmBtn.focus()}}));
   return new Promise(resolve=>{aiwayDialogResolver=resolve});
 }
 function aiwayConfirm(message,options={}){return showAiwayDialog({...options,message})}
