@@ -418,7 +418,8 @@ function renderModelSelect(selected=''){
   select.innerHTML=all.map(m=>`<option value="${esc(m.id)}" ${m.locked?'disabled':''}>${esc(shortModelName(m.shortName||m.name||m.id))}</option>`).join('');select.value=preferred;
   renderModelMenu('all');updateModelTrigger();syncModelMode();
 }
-function isFreeModel(m){if(!m)return false;if(m.type==='image'){const values=[m?.pricing?.image,m?.pricing?.image_output,m?.pricing?.request].filter(v=>v!==undefined&&v!==null&&v!=='').map(Number).filter(Number.isFinite);return values.length>0&&values.every(v=>v===0)}return Number(m?.pricing?.prompt)===0&&Number(m?.pricing?.completion)===0}
+const ONLY_FREE_MODEL_ID='google/gemma-4-26b-a4b-it:free';
+function isFreeModel(m){return Boolean(m&&m.type!=='image'&&m.id===ONLY_FREE_MODEL_ID)}
 function providerGroup(m){const text=`${m?.provider||''} ${m?.family||''} ${m?.providerLabel||''} ${m?.familyLabel||''} ${m?.name||''} ${m?.id||''}`.toLowerCase();if(/openai|\bgpt[-\s]?|\bo[1345](?:[-\s]|$)/.test(text))return'openai';if(/anthropic|claude/.test(text))return'anthropic';if(/google|gemini|gemma/.test(text))return'google';if(/xai|grok/.test(text))return'xai';return'other'}
 function modelDateValue(m){for(const value of [m?.releasedAt,m?.releaseDate,m?.createdAt,m?.created,m?.updatedAt,m?.updated]){const t=typeof value==='number'?value:new Date(value||0).getTime();if(Number.isFinite(t)&&t>0)return t}return 0}
 function modelPowerValue(m){const n=String(m?.shortName||m?.name||m?.id||'').toLowerCase();let v=modelDateValue(m)/1e12;if(/opus|max|ultra|pro|gpt[-\s]?5|\bo3\b|\bo4\b|sonnet|gemini[-\s]?2\.5/.test(n))v+=100;if(/mini|nano|haiku|flash|lite|small/.test(n))v-=15;v+=Math.min(8,Number(m?.contextLength||0)/100000);return v}
@@ -428,7 +429,7 @@ function sortFreeModels(items){return [...items].sort((a,b)=>{const an=String(a.
 function renderModelMenu(filter='all'){
  const menu=$('modelMenu');if(!menu)return;const all=[...(window.aiwayModels||[]),...(window.aiwayImageModels||[])],paid=all.filter(m=>!isFreeModel(m));let items=orderedPremiumModels(paid);
  if(filter==='chat')items=orderedPremiumModels(paid.filter(m=>m.type!=='image'));if(filter==='images')items=paid.filter(m=>m.type==='image');
- if(filter==='free')items=sortFreeModels(all.filter(isFreeModel));
+ if(filter==='free')items=all.filter(m=>m.id===ONLY_FREE_MODEL_ID);
  if(filter==='cheap')items=[...paid.filter(m=>m.type!=='image')].sort((a,b)=>modelScore(b).cheap-modelScore(a).cheap);
  const labels={all:I18N[lang].modelsAll,chat:I18N[lang].modelsChat,images:I18N[lang].modelsImages,cheap:I18N[lang].modelsCheap,free:(I18N[lang].modelsFree||(lang==='ar'?'المجاني':'Free'))};
  const tabs=['all','chat','images','cheap','free'].map(k=>`<button type="button" class="model-tab ${k===filter?'active':''}" data-model-filter="${k}">${labels[k]}</button>`).join('');
