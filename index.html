@@ -245,6 +245,18 @@ html,body{min-height:480px}
 .intro-lang{position:fixed!important;top:max(14px,env(safe-area-inset-top))!important;z-index:1002!important}
 html[dir="ltr"] .intro-lang{right:max(14px,env(safe-area-inset-right))!important;left:auto!important}
 html[dir="rtl"] .intro-lang{left:max(14px,env(safe-area-inset-left))!important;right:auto!important}
+
+/* AiWay branded system dialog */
+.aiway-dialog-overlay{z-index:1200;background:rgba(28,14,39,.52);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:dialogFade .18s ease}
+.aiway-dialog{width:min(430px,calc(100vw - 28px));background:linear-gradient(180deg,#fff 0%,#fcf9ff 100%);border:1px solid rgba(111,45,189,.14);border-radius:26px;padding:22px;box-shadow:0 28px 90px rgba(43,22,59,.34);transform-origin:center;animation:dialogRise .22s cubic-bezier(.2,.8,.2,1)}
+.aiway-dialog-brand{display:flex;align-items:center;gap:11px;margin-bottom:17px}.aiway-dialog-logo{width:46px;height:46px;border-radius:15px;object-fit:cover;box-shadow:0 10px 24px rgba(111,45,189,.22)}.aiway-dialog-brand-copy{min-width:0}.aiway-dialog-brand-copy b{display:block;font-size:16px}.aiway-dialog-brand-copy small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.aiway-dialog-icon{width:48px;height:48px;border-radius:16px;display:grid;place-items:center;background:var(--pi3);color:var(--pi);margin-bottom:13px}.aiway-dialog-icon svg{width:25px;height:25px}.aiway-dialog.danger .aiway-dialog-icon{background:#fff0f3;color:var(--danger)}
+.aiway-dialog h3{margin:0 0 9px;font-size:21px;line-height:1.35}.aiway-dialog-message{margin:0;color:var(--muted);line-height:1.85;font-size:15px;white-space:pre-line}.aiway-dialog-note{display:none;margin-top:14px;padding:11px 12px;border-radius:14px;background:var(--pi3);color:#5c2c85;font-size:12px;line-height:1.65}.aiway-dialog-note.show{display:block}
+.aiway-dialog-actions{display:flex;gap:10px;margin-top:22px}.aiway-dialog-actions .btn{flex:1}.aiway-dialog-confirm.danger{background:linear-gradient(135deg,#bb3650,#d85b70);color:#fff;border-color:transparent;box-shadow:0 10px 22px rgba(196,61,87,.22)}
+@keyframes dialogFade{from{opacity:0}to{opacity:1}}@keyframes dialogRise{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(max-width:520px){.aiway-dialog-overlay{align-items:end;padding:12px}.aiway-dialog{width:100%;border-radius:25px 25px 20px 20px;padding:20px}.aiway-dialog-actions{display:grid;grid-template-columns:1fr 1fr}.aiway-dialog h3{font-size:20px}}
+@media(prefers-reduced-motion:reduce){.aiway-dialog-overlay,.aiway-dialog{animation:none}}
+
 </style>
 </head>
 <body>
@@ -292,6 +304,20 @@ html[dir="rtl"] .intro-lang{left:max(14px,env(safe-area-inset-left))!important;r
 <div class="overlay" id="supportModal"><div class="modal support-modal"><div class="support-head"><div class="support-head-copy"><h2 id="supportTitle">تواصل مع الدعم</h2><p id="supportSubtitle">أرسل أي مشكلة وسيرد عليك فريق الدعم هنا.</p></div><button class="icon-btn" id="closeSupport" type="button"><span data-icon="close"></span></button></div><div class="support-messages" id="supportMessages"><div class="support-empty">سجل الدخول لبدء محادثة مع الدعم.</div></div><div class="support-compose"><textarea id="supportInput" rows="1" maxlength="2000" placeholder="اكتب مشكلتك هنا..."></textarea><button class="support-send" id="supportSend" type="button" aria-label="Send"><span data-icon="send"></span></button></div></div></div>
 
 <div class="overlay" id="piSigninModal"><div class="modal pi-signin-modal"><div class="pi-signin-logo">π</div><h2 id="piSigninTitle">تسجيل الدخول بحساب Pi</h2><p id="piSigninText">سيتم نقلك إلى Pi لتأكيد حسابك، ثم ستعود إلى AiWay وتجد نفسك مسجلًا تلقائيًا.</p><div class="pi-signin-actions"><button class="btn primary" id="continuePiSignin" type="button"><span data-icon="login"></span><span id="continuePiSigninText">الانتقال وتسجيل الدخول</span></button><button class="btn soft" id="cancelPiSignin" type="button">إلغاء</button></div><div class="pi-signin-note" id="piSigninNote">لن يطلب منك AiWay كلمة مرور Pi. تتم المصادقة من خلال Pi فقط.</div></div></div>
+
+<div class="overlay aiway-dialog-overlay" id="aiwayDialogOverlay" role="presentation" aria-hidden="true">
+  <section class="aiway-dialog" id="aiwayDialog" role="alertdialog" aria-modal="true" aria-labelledby="aiwayDialogTitle" aria-describedby="aiwayDialogMessage">
+    <div class="aiway-dialog-brand"><img class="aiway-dialog-logo" src="/aiway-logo.png" alt=""><div class="aiway-dialog-brand-copy"><b>AiWay</b><small id="aiwayDialogBrandText">Smart AI assistant</small></div></div>
+    <div class="aiway-dialog-icon" id="aiwayDialogIcon"><span data-icon="sparkles"></span></div>
+    <h3 id="aiwayDialogTitle"></h3>
+    <p class="aiway-dialog-message" id="aiwayDialogMessage"></p>
+    <div class="aiway-dialog-note" id="aiwayDialogNote"></div>
+    <div class="aiway-dialog-actions">
+      <button class="btn soft" id="aiwayDialogCancel" type="button"></button>
+      <button class="btn primary aiway-dialog-confirm" id="aiwayDialogConfirm" type="button"></button>
+    </div>
+  </section>
+</div>
 <div class="toast" id="toast"></div>
 <script>
 const ICONS={
@@ -302,6 +328,29 @@ const $=id=>document.getElementById(id);document.querySelectorAll('[data-icon]')
 function storageGet(key,fallback=null){try{const value=localStorage.getItem(key);return value===null?fallback:value}catch{return fallback}}function storageSet(key,value){try{localStorage.setItem(key,value)}catch{}}function storageRemove(key){try{localStorage.removeItem(key)}catch{}}function storedJson(key){try{return JSON.parse(storageGet(key,'null'))}catch{return null}}let lang=sessionStorage.getItem('aiway_intro_lang')||storageGet('aiway_lang','en');if(!['ar','en'].includes(lang))lang='en';let auth=storedJson('pi_ai_auth'),current=null,history=[],streaming=false,webSearch=false,controller=null,piReady=false,userProfile=null;
 const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._x);t._x=setTimeout(()=>t.classList.remove('show'),4200)}
+let aiwayDialogResolver=null;
+function closeAiwayDialog(result=false){const overlay=$('aiwayDialogOverlay');if(!overlay)return;if(aiwayDialogResolver){const resolve=aiwayDialogResolver;aiwayDialogResolver=null;overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true');document.body.classList.remove('dialog-open');setTimeout(()=>resolve(Boolean(result)),0)}}
+function showAiwayDialog(options={}){
+  const overlay=$('aiwayDialogOverlay'),dialog=$('aiwayDialog');
+  if(!overlay||!dialog)return Promise.resolve(false);
+  if(aiwayDialogResolver)closeAiwayDialog(false);
+  const isAr=lang==='ar',type=options.type||'info';
+  dialog.classList.toggle('danger',type==='danger');
+  $('aiwayDialogBrandText').textContent=isAr?'مساعدك الذكي':'Your smart AI assistant';
+  $('aiwayDialogTitle').textContent=options.title||(isAr?'تأكيد الإجراء':'Confirm action');
+  $('aiwayDialogMessage').textContent=options.message||'';
+  const note=$('aiwayDialogNote');note.textContent=options.note||'';note.classList.toggle('show',Boolean(options.note));
+  const cancel=$('aiwayDialogCancel'),confirmBtn=$('aiwayDialogConfirm');
+  cancel.textContent=options.cancelText||(isAr?'إلغاء':'Cancel');
+  confirmBtn.textContent=options.confirmText||(isAr?'موافق':'Confirm');
+  confirmBtn.classList.toggle('danger',type==='danger');
+  $('aiwayDialogIcon').innerHTML=icon(type==='danger'?'trash':'sparkles');
+  overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');document.body.classList.add('dialog-open');
+  setTimeout(()=>confirmBtn.focus(),40);
+  return new Promise(resolve=>{aiwayDialogResolver=resolve});
+}
+function aiwayConfirm(message,options={}){return showAiwayDialog({...options,message})}
+
 function statusMessage(status){const ar={400:'بيانات الطلب غير صحيحة.',401:'انتهت جلسة تسجيل الدخول. سجّل الدخول مرة أخرى.',402:'رصيدك غير كافٍ. اشحن رصيدًا إضافيًا.',403:'ليس لديك صلاحية لتنفيذ هذا الإجراء.',404:'العنصر المطلوب غير موجود.',408:'انتهت مهلة الطلب. حاول مرة أخرى.',413:'حجم الرسالة أو المرفق أكبر من المسموح.',429:'هناك ضغط مرتفع. انتظر قليلًا ثم حاول مرة أخرى.',500:'حدث عطل مؤقت في الخادم.',502:'حدث عطل مؤقت لدى مزود الخدمة.',503:'الخدمة غير متاحة مؤقتًا.',504:'استغرق الطلب وقتًا أطول من المسموح.'};const en={400:'The request data is invalid.',401:'Your session expired. Sign in again.',402:'Your balance is insufficient. Add more balance.',403:'You do not have permission to perform this action.',404:'The requested item was not found.',408:'The request timed out. Try again.',413:'The message or attachment is too large.',429:'The service is busy. Wait a moment and try again.',500:'A temporary server error occurred.',502:'The provider had a temporary failure.',503:'The service is temporarily unavailable.',504:'The request took too long.'};return (lang==='ar'?ar:en)[status]||(lang==='ar'?'حدث خطأ غير متوقع. حاول مرة أخرى.':'An unexpected error occurred. Try again.')}
 function makeUiError(message,code='SERVER_ERROR',meta={}){const error=new Error(message);error.code=code;error.isLocalized=true;Object.assign(error,meta||{});return error}
 function friendlyClientError(error,fallback){if(error?.isLocalized&&error?.message)return error;const raw=String(error?.message||error||'');if(error?.name==='AbortError')return error;if(/failed to fetch|networkerror|load failed|internet disconnected|econn|socket/i.test(raw))return makeUiError(lang==='ar'?'تعذر الاتصال بالخدمة. تحقق من الإنترنت ثم حاول مرة أخرى؛ لم يتم خصم رصيدك.':'Could not connect to the service. Check your internet connection and try again; your balance was not charged.','NETWORK_ERROR');if(/json|unexpected end|stream|decoder/i.test(raw))return makeUiError(lang==='ar'?'انقطع الاتصال أثناء استلام الرد. أعد المحاولة؛ لن يُخصم رصيد عن رد غير مكتمل.':'The connection was interrupted while receiving the response. Try again; an incomplete response will not be charged.','STREAM_INTERRUPTED');return makeUiError(fallback||statusMessage(500),'SERVER_ERROR')}
@@ -328,7 +377,7 @@ function renderAccountState(){
 }
 function applyLanguage(){document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';document.querySelector('[data-legal="privacy"]')&&(document.querySelector('[data-legal="privacy"]').textContent=lang==='ar'?'سياسة الخصوصية':'Privacy Policy');document.querySelector('[data-legal="terms"]')&&(document.querySelector('[data-legal="terms"]').textContent=lang==='ar'?'شروط الاستخدام':'Terms of Service');document.querySelectorAll('[data-i18n]').forEach(el=>{if(!['profileName','profileState'].includes(el.id))el.textContent=I18N[lang][el.dataset.i18n]||el.textContent});$('languageLabel').textContent=lang==='en'?'العربية':'English';$('prompt').placeholder=lang==='ar'?'اسأل أي شيء...':'Ask anything...';if($('attachBtn')){$('attachBtn').setAttribute('aria-label',lang==='ar'?'إرفاق صورة أو ملف':'Attach image or file');$('attachBtn').title=$('attachBtn').getAttribute('aria-label')}updatePiSigninModal();renderPackages();if(window.aiwayModels)renderModelSelect($('model').value);renderAccountState();updateIntroLanguage();render()}
 function toggleLanguage(){lang=lang==='en'?'ar':'en';try{sessionStorage.setItem('aiway_intro_lang',lang)}catch{}storageSet('aiway_lang',lang);applyLanguage()}
-async function deleteChat(id){const ok=confirm(lang==='ar'?'هل تريد حذف هذه الدردشة نهائيًا؟':'Delete this chat permanently?');if(!ok)return;try{await api('/api/conversations?id='+encodeURIComponent(id),{method:'DELETE'});if(current===id){current=null;history=[];render()}await loadChats();toast(lang==='ar'?'تم حذف الدردشة':'Chat deleted')}catch(e){toast(friendlyClientError(e,lang==='ar'?'لم نتمكن من حذف الدردشة. حاول مرة أخرى.':'We could not delete the chat. Please try again.').message)}}
+async function deleteChat(id){const ok=await aiwayConfirm(lang==='ar'?'سيتم حذف هذه الدردشة ورسائلها نهائيًا، ولا يمكن التراجع عن هذا الإجراء.':'This chat and all of its messages will be permanently deleted. This action cannot be undone.',{title:lang==='ar'?'حذف الدردشة؟':'Delete this chat?',confirmText:lang==='ar'?'حذف نهائي':'Delete permanently',cancelText:lang==='ar'?'احتفاظ بالدردشة':'Keep chat',type:'danger'});if(!ok)return;try{await api('/api/conversations?id='+encodeURIComponent(id),{method:'DELETE'});if(current===id){current=null;history=[];render()}await loadChats();toast(lang==='ar'?'تم حذف الدردشة':'Chat deleted')}catch(e){toast(friendlyClientError(e,lang==='ar'?'لم نتمكن من حذف الدردشة. حاول مرة أخرى.':'We could not delete the chat. Please try again.').message)}}
 function isPiBrowser(){
   const ua=String(navigator.userAgent||'');
   return /(?:PiBrowser|Pi Browser)/i.test(ua);
@@ -763,7 +812,7 @@ async function continueResponse(index){
   const target=history[index];
   if(!target||target.role!=='assistant'||!target.content||target.generatedImage)return;
   if(index!==history.length-1){toast(lang==='ar'?'يمكن استكمال آخر رد فقط':'Only the latest response can be continued');return}
-  if(!confirm(I18N[lang].continueConfirm))return;
+  if(!await aiwayConfirm(I18N[lang].continueConfirm,{title:lang==='ar'?'استكمال الرد؟':'Continue the response?',confirmText:lang==='ar'?'أكمل الرد':'Continue response',cancelText:lang==='ar'?'إلغاء':'Cancel',note:lang==='ar'?'سيُحسب الاستكمال كطلب جديد، وتُخصم التكلفة الفعلية فقط حسب النموذج والاستخدام.':'Continuation is a new request. Only its actual model usage will be charged.'}))return;
   let stageTimer=0;
   try{
     if(!auth){await login();return}
@@ -829,7 +878,11 @@ messagesBox.addEventListener('scroll',()=>{userPinnedToBottom=isNearBottom();upd
 messagesBox.addEventListener('wheel',e=>{if(e.deltaY<0)userPinnedToBottom=false},{passive:true});
 messagesBox.addEventListener('touchstart',()=>{if(!isNearBottom(24))userPinnedToBottom=false},{passive:true});messagesBox.addEventListener('touchmove',()=>{if(!isNearBottom(24))userPinnedToBottom=false;updateScrollLatestButton()},{passive:true});
 $('introStart').onclick=enterChat;$('introLanguageBtn').onclick=toggleLanguage;$('scrollLatest').onclick=()=>scrollToLatest('smooth');
-$('model').onchange=e=>selectModel(e.target.value);$('modelTrigger').removeAttribute('aria-hidden');$('modelTrigger').tabIndex=0;const toggleModelMenu=e=>{e.preventDefault();e.stopPropagation();const menu=$('modelMenu');menu&&menu.classList.contains('open')?closeModelMenu():openModelMenu()};$('modelTrigger').addEventListener('click',toggleModelMenu);$('modelTrigger').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '||e.key==='ArrowDown'){toggleModelMenu(e)}});document.addEventListener('click',e=>{if(!$('modelMenu')?.contains(e.target)&&!$('modelTrigger')?.contains(e.target))closeModelMenu()});window.addEventListener('resize',()=>{positionModelMenu();positionSigninGuide()});window.visualViewport?.addEventListener('resize',positionModelMenu);window.visualViewport?.addEventListener('scroll',positionModelMenu);$('newChatBtn').onclick=newChat;$('loginBtn').onclick=()=>auth?logout():login();$('continuePiSignin').onclick=startExternalPiSignIn;$('cancelPiSignin').onclick=closePiSigninModal;$('piSigninModal').onclick=e=>{if(e.target===$('piSigninModal'))closePiSigninModal()};$('payBtn').onclick=openPay;$('supportBtn').onclick=openSupport;$('closeSupport').onclick=()=>$('supportModal').classList.remove('open');$('supportModal').onclick=e=>{if(e.target===$('supportModal'))$('supportModal').classList.remove('open')};$('supportSend').onclick=sendSupport;$('supportInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendSupport()}};$('languageBtn').onclick=toggleLanguage;$('menuBtn').onclick=()=>{dismissSigninGuide();$('sidebar').classList.add('open');$('backdrop').classList.add('open')};$('backdrop').onclick=closeMenu;$('exportBtn').onclick=exportChat;$('webPill').onclick=toggleWeb;$('attachBtn').onclick=()=>$('fileInput').click();$('fileInput').onchange=e=>addFiles(e.target.files);$('sendBtn').onclick=sendMessage;$('prompt').oninput=autoSize;$('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}};$('closePay').onclick=()=>$('payModal').classList.remove('open');$('payModal').onclick=e=>{if(e.target===$('payModal'))$('payModal').classList.remove('open')};document.querySelectorAll('.buy').forEach(b=>b.onclick=()=>buy(b.dataset.pack));$('closePreview').onclick=()=>{$('previewModal').classList.remove('open');$('previewFrame').srcdoc=''};$('previewModal').onclick=e=>{if(e.target===$('previewModal'))$('closePreview').click()};function syncViewportHeight(){
+$('model').onchange=e=>selectModel(e.target.value);$('modelTrigger').removeAttribute('aria-hidden');$('modelTrigger').tabIndex=0;const toggleModelMenu=e=>{e.preventDefault();e.stopPropagation();const menu=$('modelMenu');menu&&menu.classList.contains('open')?closeModelMenu():openModelMenu()};$('modelTrigger').addEventListener('click',toggleModelMenu);$('modelTrigger').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '||e.key==='ArrowDown'){toggleModelMenu(e)}});document.addEventListener('click',e=>{if(!$('modelMenu')?.contains(e.target)&&!$('modelTrigger')?.contains(e.target))closeModelMenu()});window.addEventListener('resize',()=>{positionModelMenu();positionSigninGuide()});window.visualViewport?.addEventListener('resize',positionModelMenu);window.visualViewport?.addEventListener('scroll',positionModelMenu);$('newChatBtn').onclick=newChat;$('loginBtn').onclick=()=>auth?logout():login();$('continuePiSignin').onclick=startExternalPiSignIn;$('cancelPiSignin').onclick=closePiSigninModal;$('piSigninModal').onclick=e=>{if(e.target===$('piSigninModal'))closePiSigninModal()};$('payBtn').onclick=openPay;$('supportBtn').onclick=openSupport;$('closeSupport').onclick=()=>$('supportModal').classList.remove('open');$('supportModal').onclick=e=>{if(e.target===$('supportModal'))$('supportModal').classList.remove('open')};$('supportSend').onclick=sendSupport;$('supportInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendSupport()}};$('languageBtn').onclick=toggleLanguage;$('menuBtn').onclick=()=>{dismissSigninGuide();$('sidebar').classList.add('open');$('backdrop').classList.add('open')};$('backdrop').onclick=closeMenu;$('exportBtn').onclick=exportChat;$('webPill').onclick=toggleWeb;$('attachBtn').onclick=()=>$('fileInput').click();$('fileInput').onchange=e=>addFiles(e.target.files);$('sendBtn').onclick=sendMessage;$('prompt').oninput=autoSize;$('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}};$('aiwayDialogCancel').onclick=()=>closeAiwayDialog(false);
+$('aiwayDialogConfirm').onclick=()=>closeAiwayDialog(true);
+$('aiwayDialogOverlay').addEventListener('click',event=>{if(event.target===$('aiwayDialogOverlay'))closeAiwayDialog(false)});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('aiwayDialogOverlay')?.classList.contains('open'))closeAiwayDialog(false)});
+$('closePay').onclick=()=>$('payModal').classList.remove('open');$('payModal').onclick=e=>{if(e.target===$('payModal'))$('payModal').classList.remove('open')};document.querySelectorAll('.buy').forEach(b=>b.onclick=()=>buy(b.dataset.pack));$('closePreview').onclick=()=>{$('previewModal').classList.remove('open');$('previewFrame').srcdoc=''};$('previewModal').onclick=e=>{if(e.target===$('previewModal'))$('closePreview').click()};function syncViewportHeight(){
   const vv=window.visualViewport;
   const visualHeight=vv&&Number(vv.height)>320?Number(vv.height):0;
   const fallbackHeight=Math.max(Number(window.innerHeight)||0,Number(document.documentElement.clientHeight)||0,480);
