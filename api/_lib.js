@@ -27,6 +27,32 @@ export function json(res, status, body) {
   return res.end(JSON.stringify(body));
 }
 
+export async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const timeout = Math.max(1, Number(timeoutMs) || 15000);
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort(new DOMException('Request timed out', 'TimeoutError')), timeout);
+  const callerSignal = options?.signal;
+  const signal = callerSignal
+    ? (typeof AbortSignal.any === 'function'
+        ? AbortSignal.any([callerSignal, timeoutController.signal])
+        : timeoutController.signal)
+    : timeoutController.signal;
+
+  let abortFromCaller;
+  if (callerSignal && typeof AbortSignal.any !== 'function') {
+    abortFromCaller = () => timeoutController.abort(callerSignal.reason);
+    if (callerSignal.aborted) abortFromCaller();
+    else callerSignal.addEventListener('abort', abortFromCaller, { once: true });
+  }
+
+  try {
+    return await fetch(url, { ...options, signal });
+  } finally {
+    clearTimeout(timer);
+    if (callerSignal && abortFromCaller) callerSignal.removeEventListener('abort', abortFromCaller);
+  }
+}
+
 export function allowMethods(req, res, methods) {
   if (methods.includes(req.method)) return true;
   res.setHeader('Allow', methods.join(', '));
