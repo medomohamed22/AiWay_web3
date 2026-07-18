@@ -252,6 +252,10 @@ export function errorDetails(error, locale = 'ar') {
       ar: 'مزود الذكاء الاصطناعي رفض تشغيل هذه الخدمة بالحساب الحالي. لن يتم خصم رصيدك؛ تواصل مع إدارة AiWay.',
       en: 'The AI provider rejected this service for the current account. Your balance was not charged; contact AiWay support.'
     }],
+    FREE_DAILY_LIMIT: [429, {
+      ar: 'استخدمت 30 طلبًا مجانيًا اليوم. اختر نموذجًا آخر للمتابعة، وستتجدد الطلبات المجانية تلقائيًا غدًا.',
+      en: 'You have used all 30 free requests for today. Choose another model to continue; your free requests reset automatically tomorrow.'
+    }],
     RATE_LIMITED: [429, {
       ar: 'هناك ضغط مرتفع أو تم بلوغ حد الطلبات مؤقتًا. انتظر قليلًا ثم حاول مرة أخرى؛ لم يتم خصم رصيدك.',
       en: 'The service is busy or its request limit was reached temporarily. Wait a moment and try again; your balance was not charged.'
@@ -569,10 +573,10 @@ export async function chooseAutoModel(text = '', { webSearch = false, hasAttachm
 }
 
 export async function claimFreeDailyUse(supabase, userId, kind = 'chat') {
-  const limit = kind === 'image' ? 30 : 20;
+  const limit = 30;
   const { data, error } = await supabase.rpc('claim_free_model_request', { p_user_id:userId, p_kind:kind, p_daily_limit:limit });
   if (error) {
-    if (String(error.message || '').toLowerCase().includes('daily free limit')) throw appError('RATE_LIMITED', { freeDailyLimit: limit });
+    if (String(error.message || '').toLowerCase().includes('daily free limit')) throw appError('FREE_DAILY_LIMIT', { freeDailyLimit: limit, freeRequestKind: kind });
     throw appError('DATABASE_ERROR', {}, error);
   }
   return data || {};
