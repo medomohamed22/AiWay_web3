@@ -72,10 +72,18 @@ async function nativeImageDownload(req, res) {
   if (ticket.kind !== 'image' || !ticket.imageId || !ticket.sub) throw new Error('UNAUTHORIZED');
   req.query.imageId = String(ticket.imageId);
   req.downloadUserId = String(ticket.sub);
-  return downloadImage(req, res, true);
+  return downloadImage(req, res, true, false);
 }
 
-async function downloadImage(req, res, ticketed = false) {
+async function viewImage(req, res) {
+  const ticket = await verifyDownloadTicket(req.query?.ticket);
+  if (ticket.kind !== 'image-view' || !ticket.imageId || !ticket.sub) throw new Error('UNAUTHORIZED');
+  req.query.imageId = String(ticket.imageId);
+  req.downloadUserId = String(ticket.sub);
+  return downloadImage(req, res, true, true);
+}
+
+async function downloadImage(req, res, ticketed = false, inline = false) {
   const imageId = String(req.body?.imageId || req.query?.imageId || '');
   if (!imageId) throw new Error('UNAUTHORIZED');
 
@@ -92,31 +100,35 @@ async function downloadImage(req, res, ticketed = false) {
   let file;
   let mediaType = String(image.media_type || 'image/jpeg').toLowerCase();
   if (image.storage_path) {
-    const { data, error: storageError } = await db().storage.from('generated-images').download(image.storage_path);
-    if (storageError || !data) throw new Error('IMAGE_NOT_FOUND');
-    file = Buffer.from(await data.arrayBuffer());
-    mediaType = String(data.type || mediaType);
-  } else if (image.thumbnail_data) {
-    const match = String(image.thumbnail_data || '').match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
-    if (!match) throw new Error('IMAGE_NOT_FOUND');
-    mediaType = String(image.media_type || match[1] || 'image/jpeg').toLowerCase();
-    file = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
-  } else if (image.source_url && /^https:\/\//i.test(String(image.source_url))) {
-    const remote = await fetchWithTimeout(String(image.source_url), {}, 30000);
-    if (!remote.ok) throw new Error('IMAGE_NOT_FOUND');
-    file = Buffer.from(await remote.arrayBuffer());
-    mediaType = String(remote.headers.get('content-type') || mediaType).split(';')[0].trim().toLowerCase();
-  } else {
-    throw new Error('IMAGE_NOT_FOUND');
+    const { data } = await db().storage.from('generated-images').download(image.storage_path);
+    if (data) {
+      file = Buffer.from(await data.arrayBuffer());
+      mediaType = String(data.type || mediaType);
+    }
   }
+  if (!file && image.thumbnail_data) {
+    const match = String(image.thumbnail_data || '').match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
+    if (match) {
+      mediaType = String(image.media_type || match[1] || 'image/jpeg').toLowerCase();
+      file = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+    }
+  }
+  if (!file && image.source_url && /^https:\/\//i.test(String(image.source_url))) {
+    const remote = await fetchWithTimeout(String(image.source_url), {}, 30000);
+    if (remote.ok) {
+      file = Buffer.from(await remote.arrayBuffer());
+      mediaType = String(remote.headers.get('content-type') || mediaType).split(';')[0].trim().toLowerCase();
+    }
+  }
+  if (!file?.length) throw new Error('IMAGE_NOT_FOUND');
   const extension = mediaType.includes('png') ? 'png' : mediaType.includes('webp') ? 'webp' : 'jpg';
   const filename = safeFilename(`AiWay-${image.id}`, extension);
 
   res.status(200);
   res.setHeader('Content-Type', mediaType);
   res.setHeader('Content-Length', String(file.length));
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${filename}"`);
+  res.setHeader('Cache-Control', inline ? 'private, max-age=300' : 'private, no-store, max-age=0');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   return res.end(file);
 }
@@ -239,6 +251,7 @@ export default async function handler(req, res) {
     const action = String(req.body?.action || req.query?.action || '');
     if (action === 'cleanup-expired' && req.method === 'GET') return await cleanupExpiredImages(req, res);
     if (action === 'native-download' && req.method === 'GET') return await nativeImageDownload(req, res);
+    if (action === 'view' && req.method === 'GET') return await viewImage(req, res);
     if (action === 'prepare-download' && req.method === 'POST') return await prepareImageDownload(req, res);
     if (action === 'download') return await downloadImage(req, res);
     if (req.method === 'GET') throw appError('INVALID_IMAGE_REQUEST');
