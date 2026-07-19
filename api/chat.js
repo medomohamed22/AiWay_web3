@@ -420,7 +420,8 @@ export default async function handler(req, res) {
       fallbackUsed,
       routedModelId: routedModelId || activeModelId,
       generationId: generationId || null,
-      routerMetadata
+      routerMetadata,
+      webSearch: Boolean(webSearch)
     };
     let savedAssistant;
     let saveAssistantError;
