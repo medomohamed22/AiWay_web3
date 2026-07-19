@@ -1,4 +1,4 @@
-import {allowMethods,appError,cleanText,createDownloadTicket,db,handleError,json,localize,requestLocale,requireUser,requireAdmin} from './_lib.js';
+import {allowMethods,appError,cleanText,createDownloadTicket,db,handleError,json,localize,requestLocale,requireUser,requireAdmin,sendTelegramNotification,telegramHtml,formatCairoDateTime} from './_lib.js';
 
 async function handleSupport(req,res,user,s,locale){
   const mode=String(req.query?.mode||req.body?.mode||'');
@@ -49,6 +49,13 @@ async function handleSupport(req,res,user,s,locale){
     if(!thread){const {data,error}=await s.from('support_threads').insert({user_id:user.id,username:user.username||'Pi User'}).select('id').single();if(error)throw appError('DATABASE_ERROR',{},error);thread=data}
     const {data,error}=await s.from('support_messages').insert({thread_id:thread.id,sender_role:'user',sender_id:user.id,message}).select('*').single();if(error)throw appError('DATABASE_ERROR',{},error);
     await s.from('support_threads').update({status:'open',updated_at:new Date().toISOString()}).eq('id',thread.id);
+    await sendTelegramNotification(
+      `📩 <b>رسالة دعم جديدة</b>\n\n`+
+      `👤 <b>اسم المستخدم:</b> ${telegramHtml(user.username||'مستخدم Pi')}\n`+
+      `🆔 <b>معرّف المستخدم:</b> <code>${telegramHtml(user.id)}</code>\n`+
+      `🕒 <b>الوقت:</b> ${telegramHtml(formatCairoDateTime(data.created_at))}\n\n`+
+      `💬 <b>محتوى الرسالة:</b>\n${telegramHtml(message)}`
+    );
     return json(res,201,{message:data});
   }
   return json(res,405,{error:'Method not allowed',code:'METHOD_NOT_ALLOWED'});

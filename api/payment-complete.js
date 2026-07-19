@@ -1,4 +1,4 @@
-import { allowMethods, appError, db, fetchWithTimeout, handleError, json, localize, PACKAGES, piApiError, requestLocale, requireUser, requestIp, enforceRateLimit } from './_lib.js';
+import { allowMethods, appError, db, fetchWithTimeout, handleError, json, localize, PACKAGES, piApiError, requestLocale, requireUser, requestIp, enforceRateLimit, sendTelegramNotification, telegramHtml, formatCairoDateTime } from './_lib.js';
 
 const piHeaders=()=>({Authorization:`Key ${process.env.PI_SECRET_KEY}`,'Content-Type':'application/json'});
 async function piRequest(paymentId,action='',body){
@@ -108,6 +108,18 @@ export default async function handler(req,res){
       if(done.data?.status==='completed')return json(res,200,{completed:true,resolved:true,tokens:done.data.ai_tokens,alreadyCompleted:true});
       throw appError('DATABASE_ERROR',{},error);
     }
+    await sendTelegramNotification(
+      `💰 <b>دفعة جديدة مكتملة</b>\n\n`+
+      `👤 <b>اسم المستخدم:</b> ${telegramHtml(user.username||'مستخدم Pi')}\n`+
+      `🆔 <b>معرّف المستخدم:</b> <code>${telegramHtml(user.id)}</code>\n`+
+      `🥧 <b>عدد Pi:</b> ${telegramHtml(Number(payment.amount_pi).toLocaleString('ar-EG',{maximumFractionDigits:7}))}\n`+
+      `💵 <b>القيمة بالدولار:</b> $${telegramHtml(Number(payment.usd_amount).toLocaleString('ar-EG',{minimumFractionDigits:2,maximumFractionDigits:2}))}\n`+
+      `🪙 <b>التوكينات المشحونة:</b> ${telegramHtml(Number(payment.ai_tokens).toLocaleString('ar-EG'))}\n`+
+      `📦 <b>الباقة:</b> ${telegramHtml(payment.package_id)}\n`+
+      `🧾 <b>معرّف الدفعة:</b> <code>${telegramHtml(paymentId)}</code>\n`+
+      `🔗 <b>معرّف المعاملة:</b> <code>${telegramHtml(remoteTx)}</code>\n`+
+      `🕒 <b>الوقت:</b> ${telegramHtml(formatCairoDateTime())}`
+    );
     return json(res,200,{completed:true,resolved:true,tokens:payment.ai_tokens});
   }catch(error){
     return handleError(error,res,localize(locale,'تعذر إنهاء الدفعة المعلقة عبر Pi. حاول مرة أخرى.','Could not resolve the pending Pi payment. Try again.'),locale);
