@@ -519,6 +519,7 @@ function pricingNumber(value){const n=Number(value);return Number.isFinite(n)&&n
 function chatCostPerMillion(m){const prompt=pricingNumber(m?.pricing?.prompt),completion=pricingNumber(m?.pricing?.completion);if(prompt===null&&completion===null)return Number.POSITIVE_INFINITY;return ((prompt||0)+(completion||0))*1000000}
 function imageUnitCost(m){const values=[m?.pricing?.image,m?.pricing?.image_output,m?.pricing?.request].map(pricingNumber).filter(v=>v!==null);return values.length?Math.min(...values):Number.POSITIVE_INFINITY}
 function modelCostValue(m){return m?.type==='image'?imageUnitCost(m):chatCostPerMillion(m)}
+function isUnsupportedOpenRouterImageModel(m){const id=String(m?.id||'').toLowerCase(),name=String(m?.name||'').trim().toLowerCase();return id==='openrouter/auto'||id==='openrouter/auto:beta'||id==='openrouter/auto-beta'||/(^|\/)openrouter[\s:_-]*(auto)?[\s:_-]*beta$/.test(id)||/^openrouter(?:\s+auto)?(?:\s+beta)?$/.test(name)}
 function compareCostAsc(a,b){const av=modelCostValue(a),bv=modelCostValue(b);return av-bv||String(a.name||a.id).localeCompare(String(b.name||b.id))}
 function compareCostDesc(a,b){const av=modelCostValue(a),bv=modelCostValue(b);return bv-av||String(a.name||a.id).localeCompare(String(b.name||b.id))}
 function tokenUsageBadge(m){if(isFreeModel(m)||m?.isFree)return {text:lang==='ar'?'استهلاك منخفض للتوكين':'Low token cost',level:'low'};const cost=chatCostPerMillion(m);if(!Number.isFinite(cost))return null;if(cost>15)return {text:lang==='ar'?'استهلاك عالي جدًا للتوكين':'Very high token cost',level:'very-high'};if(cost>5)return {text:lang==='ar'?'استهلاك عالي للتوكين':'High token cost',level:'high'};return {text:lang==='ar'?'استهلاك منخفض للتوكين':'Low token cost',level:'low'}}
@@ -532,13 +533,20 @@ function renderModelSelect(selected=''){
 }
 const ONLY_FREE_MODEL_ID='google/gemma-4-26b-a4b-it:free';
 function isFreeModel(m){return Boolean(m&&m.type!=='image'&&(m.id===ONLY_FREE_MODEL_ID||m.isFree))}
+function modelsByBackendOrder(models,orderIds,fallbackCompare){
+ const list=[...models],order=Array.isArray(orderIds)?orderIds:[];
+ if(!order.length)return list.sort(fallbackCompare);
+ const rank=new Map(order.map((id,index)=>[id,index]));
+ return list.sort((a,b)=>(rank.get(a.id)??Number.MAX_SAFE_INTEGER)-(rank.get(b.id)??Number.MAX_SAFE_INTEGER)||fallbackCompare(a,b));
+}
 function renderModelMenu(filter='chat'){
- const menu=$('modelMenu');if(!menu)return;const all=[...(window.aiwayModels||[]),...(window.aiwayImageModels||[])],paid=all.filter(m=>!isFreeModel(m));let items=[];
- if(filter==='chat')items=paid.filter(m=>m.type!=='image').sort(compareCostAsc);
+ const menu=$('modelMenu');if(!menu)return;const all=[...(window.aiwayModels||[]),...(window.aiwayImageModels||[])],paid=all.filter(m=>!isFreeModel(m)),orders=window.aiwayChatModelOrders||{};let items=[];
+ const paidChat=paid.filter(m=>m.type!=='image');
+ if(filter==='chat')items=modelsByBackendOrder(paidChat,orders.cheapest,compareCostAsc);
  if(filter==='images')items=paid.filter(m=>m.type==='image').sort(compareCostAsc);
- if(filter==='expensive')items=paid.filter(m=>m.type!=='image').sort(compareCostDesc);
- if(filter==='cheap')items=paid.filter(m=>m.type!=='image').sort(compareCostAsc);
- if(filter==='free')items=all.filter(isFreeModel).sort(compareCostAsc);
+ if(filter==='expensive')items=modelsByBackendOrder(paidChat,orders.mostExpensive,compareCostDesc);
+ if(filter==='cheap')items=modelsByBackendOrder(paidChat,orders.cheapest,compareCostAsc);
+ if(filter==='free')items=modelsByBackendOrder(all.filter(isFreeModel),orders.free,compareCostAsc);
  const labels={chat:I18N[lang].modelsChat,images:I18N[lang].modelsImages,expensive:I18N[lang].modelsExpensive,cheap:I18N[lang].modelsCheap,free:I18N[lang].modelsFree};
  const tabs=['chat','images','expensive','cheap','free'].map(k=>`<button type="button" class="model-tab ${k===filter?'active':''}" data-model-filter="${k}">${labels[k]}</button>`).join('');
  menu.innerHTML=`<div class="model-tabs">${tabs}</div>`+items.map(m=>{const score=modelScore(m),usage=m.type==='image'?null:tokenUsageBadge(m),badges=[isFreeModel(m)?{text:lang==='ar'?'مجاني':'Free',level:'free'}:null,m.type==='image'?{text:lang==='ar'?'صور':'Images',level:'image'}:null,score.smart>=5?{text:lang==='ar'?'ذكي':'Smart',level:'normal'}:null,score.fast>=5?{text:lang==='ar'?'سريع':'Fast',level:'normal'}:null,usage].filter(Boolean);const detail=m.providerLabel||m.familyLabel||m.provider||'AI';return `<button type="button" class="model-option ${m.id===$('model').value?'selected':''}" data-model-id="${esc(m.id)}" ${m.locked?'disabled':''}>${modelLogo(m)}<span class="model-option-copy"><b>${esc(shortModelName(m.shortName||m.name||m.id))}</b><small>${esc(detail)}</small><span class="model-badges">${badges.map(x=>`<i class="model-badge ${x.level==='very-high'?'token-very-high':x.level==='high'?'token-high':x.level==='low'?'token-low':''}">${esc(x.text)}</i>`).join('')}</span></span><span class="model-lock">${m.locked?'🔒':''}</span><span class="model-option-check" aria-hidden="true"></span></button>`}).join('')||`<div class="model-menu-empty">${lang==='ar'?'لا توجد نماذج في هذه الفئة.':'No models in this category.'}</div>`;
@@ -583,7 +591,8 @@ async function loadModels(){
   const data=await api('/api/models');
   window.aiwayPackages=data.packages||{};
   window.aiwayModels=data.models||[];
-  window.aiwayImageModels=data.imageModels||[];
+  window.aiwayChatModelOrders=data.chatModelOrders||{};
+  window.aiwayImageModels=(data.imageModels||[]).filter(m=>!isUnsupportedOpenRouterImageModel(m)).sort(compareCostAsc);
   renderModelSelect(selected||data.trialModelId||'');
   renderPackages();
   return data;
