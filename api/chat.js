@@ -159,7 +159,7 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') throw appError('INVALID_REQUEST');
 
     const user = await requireUser(req);
-    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, economyMode = false, attachments = [], requestId: rawRequestId, continueFromMessageId: rawContinueFromMessageId } = req.body || {};
+    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [], requestId: rawRequestId, continueFromMessageId: rawContinueFromMessageId } = req.body || {};
     const continueFromMessageId = cleanText(rawContinueFromMessageId, 80);
     const requestId = normalizeRequestId(rawRequestId);
     reservationUserId = user.id; reservationRequestId = requestId;
@@ -203,7 +203,7 @@ export default async function handler(req, res) {
     if (!purchased && Number(profile.trial_messages_remaining) <= 0) throw appError('TRIAL_ENDED');
     if (availableTokens < 1) throw appError('INSUFFICIENT_TOKENS', { availableTokens });
 
-    const cleaned = messages.slice(economyMode === true ? -15 : -40)
+    const cleaned = messages.slice(-40)
       .map(message => ({
         role: ['system', 'user', 'assistant'].includes(message.role) ? message.role : 'user',
         content: cleanText(message.content, 30000)
@@ -243,24 +243,9 @@ export default async function handler(req, res) {
     if (!model) throw appError('MODEL_UNAVAILABLE');
     if (isFreeModel(model)) await claimFreeDailyUse(supabase, user.id, 'chat');
     const language = detectLanguage(latestTextValue);
-    const economyInstruction = uiLocale === 'ar'
-      ? `أجب عن طلب المستخدم بدقة وبشكل مباشر ومختصر.
-قدّم المعلومات الضرورية فقط، دون مقدمات أو تكرار أو حشو.
-لا تشرح خطوات بديهية، ولا تضف نصائح جانبية لم يطلبها المستخدم.
-استخدم نقاطًا قصيرة عند الحاجة.
-إذا كان الطلب يحتاج كودًا، قدّم أقل كود كامل يحقق المطلوب مع شرح مختصر جدًا.
-لا تختصر على حساب صحة الإجابة أو حذف تحذير ضروري.`
-      : `Answer the user's request accurately, directly, and concisely.
-Provide only the necessary information, without introductions, repetition, or filler.
-Do not explain obvious steps or add side advice the user did not request.
-Use short bullet points when helpful.
-If the request needs code, provide the smallest complete code that solves it, with a very brief explanation.
-Do not shorten the answer at the expense of correctness or omit a necessary warning.`;
-    const systemPrompt = [formatSystemPrompt(model, language), economyMode === true ? economyInstruction : ''].filter(Boolean).join('\n\n');
-    const safeMessages = [{ role: 'system', content: systemPrompt }, ...cleaned.filter(message => message.role !== 'system')];
-    const outputReserve = economyMode === true ? 384 : 512;
+    const safeMessages = [{ role: 'system', content: formatSystemPrompt(model, language) }, ...cleaned.filter(message => message.role !== 'system')];
 
-    const initialEstimate = estimateChatCharge(model.pricing, safeMessages, webSearch, outputReserve);
+    const initialEstimate = estimateChatCharge(model.pricing, safeMessages, webSearch, 512);
     if (availableTokens < initialEstimate.chargedTokens) {
       throw appError('INSUFFICIENT_TOKENS_FOR_REQUEST', {
         availableTokens,
@@ -325,7 +310,7 @@ Do not shorten the answer at the expense of correctness or omit a necessary warn
     let activeModel = model;
     let activeModelId = model.id;
     let fallbackUsed = false;
-    let response = await requestOpenRouter(activeModelId, economyMode === true ? Math.min(initialMaxTokens, 700) : initialMaxTokens);
+    let response = await requestOpenRouter(activeModelId, initialMaxTokens);
 
     if (!response.ok) {
       let providerError = openRouterError(response.status, await readProviderFailure(response), { kind: 'chat' });
@@ -334,7 +319,7 @@ Do not shorten the answer at the expense of correctness or omit a necessary warn
         const fallback = catalog.find(candidate => candidate.id !== modelId && candidate.family === model.family)
           || catalog.find(candidate => candidate.id !== modelId);
         if (fallback) {
-          const fallbackEstimate = estimateChatCharge(fallback.pricing, safeMessages, webSearch, outputReserve);
+          const fallbackEstimate = estimateChatCharge(fallback.pricing, safeMessages, webSearch, 512);
           if (availableTokens < fallbackEstimate.chargedTokens) {
             throw appError('INSUFFICIENT_TOKENS_FOR_REQUEST', {
               availableTokens,
@@ -346,7 +331,7 @@ Do not shorten the answer at the expense of correctness or omit a necessary warn
           if (fallbackMaxTokens >= 128) {
             activeModel = fallback;
             activeModelId = fallback.id;
-            response = await requestOpenRouter(activeModelId, economyMode === true ? Math.min(fallbackMaxTokens, 700) : fallbackMaxTokens);
+            response = await requestOpenRouter(activeModelId, fallbackMaxTokens);
             fallbackUsed = response.ok;
             if (!response.ok) providerError = openRouterError(response.status, await readProviderFailure(response), { kind: 'chat' });
           }
