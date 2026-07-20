@@ -277,7 +277,7 @@ function safeInteger(value) {
 }
 
 function formatTokens(value, language) {
-  return safeInteger(value).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US');
+  return safeInteger(value).toLocaleString('en-US');
 }
 
 function normalizedErrorCode(error) {

@@ -112,9 +112,9 @@ export default async function handler(req,res){
       `💰 <b>دفعة جديدة مكتملة</b>\n\n`+
       `👤 <b>اسم المستخدم:</b> ${telegramHtml(user.username||'مستخدم Pi')}\n`+
       `🆔 <b>معرّف المستخدم:</b> <code>${telegramHtml(user.id)}</code>\n`+
-      `🥧 <b>عدد Pi:</b> ${telegramHtml(Number(payment.amount_pi).toLocaleString('ar-EG',{maximumFractionDigits:7}))}\n`+
-      `💵 <b>القيمة بالدولار:</b> $${telegramHtml(Number(payment.usd_amount).toLocaleString('ar-EG',{minimumFractionDigits:2,maximumFractionDigits:2}))}\n`+
-      `🪙 <b>التوكينات المشحونة:</b> ${telegramHtml(Number(payment.ai_tokens).toLocaleString('ar-EG'))}\n`+
+      `🥧 <b>عدد Pi:</b> ${telegramHtml(Number(payment.amount_pi).toLocaleString('en-US',{maximumFractionDigits:7}))}\n`+
+      `💵 <b>القيمة بالدولار:</b> $${telegramHtml(Number(payment.usd_amount).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}))}\n`+
+      `🪙 <b>التوكينات المشحونة:</b> ${telegramHtml(Number(payment.ai_tokens).toLocaleString('en-US'))}\n`+
       `📦 <b>الباقة:</b> ${telegramHtml(payment.package_id)}\n`+
       `🧾 <b>معرّف الدفعة:</b> <code>${telegramHtml(paymentId)}</code>\n`+
       `🔗 <b>معرّف المعاملة:</b> <code>${telegramHtml(remoteTx)}</code>\n`+
