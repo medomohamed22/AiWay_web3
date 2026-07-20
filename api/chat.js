@@ -159,7 +159,7 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') throw appError('INVALID_REQUEST');
 
     const user = await requireUser(req);
-    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [], outputFormat = '', requestId: rawRequestId, continueFromMessageId: rawContinueFromMessageId } = req.body || {};
+    const { conversationId, modelId, messages, temperature = 0.7, webSearch = false, attachments = [], requestId: rawRequestId, continueFromMessageId: rawContinueFromMessageId } = req.body || {};
     const continueFromMessageId = cleanText(rawContinueFromMessageId, 80);
     const requestId = normalizeRequestId(rawRequestId);
     reservationUserId = user.id; reservationRequestId = requestId;
@@ -243,16 +243,7 @@ export default async function handler(req, res) {
     if (!model) throw appError('MODEL_UNAVAILABLE');
     if (isFreeModel(model)) await claimFreeDailyUse(supabase, user.id, 'chat');
     const language = detectLanguage(latestTextValue);
-    const normalizedOutputFormat = ['pdf', 'docx', 'xlsx', 'pptx'].includes(String(outputFormat || '').toLowerCase()) ? String(outputFormat).toLowerCase() : '';
-    const outputFormatInstruction = normalizedOutputFormat ? ({
-      pdf: 'The user selected PDF output. Return exactly one fenced pdf-json block with valid JSON shaped as {"filename":"document.pdf","title":"...","sections":[{"heading":"...","paragraphs":["..."],"bullets":["..."]}]}. Do not wrap it in any other code block.',
-      docx: 'The user selected Word output. Return exactly one fenced docx-json block with valid JSON shaped as {"filename":"document.docx","title":"...","sections":[{"heading":"...","paragraphs":["..."],"bullets":["..."]}]}. Do not wrap it in any other code block.',
-      xlsx: 'The user selected Excel output. Return exactly one fenced xlsx-json block with valid JSON shaped as {"filename":"workbook.xlsx","sheets":[{"name":"Sheet 1","rows":[["Column 1","Column 2"],["value","value"]]}]}. Every row must be an array and the JSON must be complete.',
-      pptx: 'The user selected PowerPoint output. Return exactly one fenced pptx-json block with valid JSON shaped as {"filename":"presentation.pptx","slides":[{"title":"...","bullets":["..."]}]}. Keep slide text concise.'
-    })[normalizedOutputFormat] : '';
-    const safeMessages = [{ role: 'system', content: `${formatSystemPrompt(model, language)}${outputFormatInstruction ? `
-
-${outputFormatInstruction}` : ''}` }, ...cleaned.filter(message => message.role !== 'system')];
+    const safeMessages = [{ role: 'system', content: formatSystemPrompt(model, language) }, ...cleaned.filter(message => message.role !== 'system')];
 
     const initialEstimate = estimateChatCharge(model.pricing, safeMessages, webSearch, 512);
     if (availableTokens < initialEstimate.chargedTokens) {
