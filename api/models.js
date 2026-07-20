@@ -177,13 +177,21 @@ export default async function handler(req, res) {
       const imageModel = imageCatalog.find(model => model.id === modelId);
       if (!chatModel && !imageModel) return json(res, 404, { error: localize(locale, 'النموذج غير متاح حاليًا.', 'The model is currently unavailable.'), code: 'MODEL_UNAVAILABLE' });
       if (imageModel) {
-        const values = [imageModel.pricing?.image, imageModel.pricing?.image_output, imageModel.pricing?.request]
+        const values = [imageModel.pricing?.request, imageModel.pricing?.image, imageModel.pricing?.image_output]
           .map(Number).filter(value => Number.isFinite(value) && value >= 0);
-        const providerUsd = values.length ? Math.min(...values) : 0;
-        return json(res, 200, { type: 'image', modelId, modelName: imageModel.shortName || imageModel.name || modelId, providerUsd, chargedTokens: Math.max(0, Math.ceil(providerUsd / TOKEN_USD)), approximate: true });
+        const baseUsd = values.length ? values[0] : 0.04;
+        const resolution = String(body.resolution || '').toLowerCase();
+        const resolutionMultiplier = /2048|2k|4k|hd/.test(resolution) ? 1.65 : /1024|1k|medium/.test(resolution) ? 1.2 : 1;
+        const referenceMultiplier = body.hasReferenceImage ? 1.12 : 1;
+        const providerUsd = baseUsd * resolutionMultiplier * referenceMultiplier;
+        return json(res, 200, {
+          type: 'image', modelId, modelName: imageModel.shortName || imageModel.name || modelId,
+          providerUsd, baseUsd, resolution, resolutionMultiplier, referenceImage: Boolean(body.hasReferenceImage),
+          chargedTokens: Math.max(1, Math.ceil(providerUsd / TOKEN_USD)), approximate: true
+        });
       }
       const messages = Array.isArray(body.messages) ? body.messages.slice(-50) : [];
-      const estimate = estimateChatCharge(chatModel.pricing || {}, messages, Boolean(body.webSearch), Number(body.outputReserve || 512));
+      const estimate = estimateChatCharge(chatModel.pricing || {}, messages, Boolean(body.webSearch), Number(body.outputReserve || 0));
       return json(res, 200, { type: 'chat', modelId, modelName: chatModel.name || modelId, ...estimate, approximate: true });
     }
     let unlocked = false;

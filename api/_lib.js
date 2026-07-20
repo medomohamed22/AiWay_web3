@@ -36,7 +36,7 @@ function escapeTelegramHtml(value) {
 
 export function formatCairoDateTime(value = new Date()) {
   try {
-    return new Intl.DateTimeFormat('ar-EG', {
+    return new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
       timeZone: 'Africa/Cairo', dateStyle: 'medium', timeStyle: 'medium'
     }).format(new Date(value));
   } catch {
@@ -277,7 +277,7 @@ function safeInteger(value) {
 }
 
 function formatTokens(value, language) {
-  return safeInteger(value).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US');
+  return safeInteger(value).toLocaleString('en-US');
 }
 
 function normalizedErrorCode(error) {
@@ -710,33 +710,98 @@ export function chargeTokens(price, usage = {}, webSearch = false) {
 }
 
 
+function estimateTextTokens(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return 0;
+  const arabic = (text.match(/[\u0600-\u06FF]/g) || []).length;
+  const latinWords = (text.match(/[A-Za-z0-9]+(?:['_-][A-Za-z0-9]+)*/g) || []).length;
+  const arabicWords = (text.match(/[\u0600-\u06FF]+/g) || []).length;
+  const punctuation = (text.match(/[^\s\p{L}\p{N}]/gu) || []).length;
+  const codeLines = (text.match(/```|[{}[\]();<>_=+*/\\|`~]|\b(?:const|let|var|function|class|import|export|SELECT|FROM|WHERE)\b/g) || []).length;
+  const urls = (text.match(/https?:\/\/\S+/g) || []).reduce((sum, url) => sum + Math.ceil(url.length / 3), 0);
+  const wordEstimate = arabicWords * 1.35 + latinWords * 1.12;
+  const characterFloor = text.length / (arabic > text.length * 0.2 ? 2.55 : 3.85);
+  return Math.max(1, Math.ceil(Math.max(wordEstimate, characterFloor) + punctuation * 0.18 + codeLines * 0.42 + urls));
+}
+
+function attachmentTokenEstimate(attachment = {}) {
+  const type = String(attachment.type || attachment.mime_type || '').toLowerCase();
+  const size = Math.max(0, Number(attachment.size || attachment.size_bytes || 0));
+  if (type.startsWith('image/')) {
+    // OpenRouter ultimately reports native multimodal token usage. Before sending,
+    // dimensions are not always available, so use a conservative size-based band.
+    if (!size) return 1050;
+    if (size <= 350_000) return 750;
+    if (size <= 1_500_000) return 1250;
+    if (size <= 4_000_000) return 1900;
+    return 2600;
+  }
+  if (type.includes('pdf')) return Math.max(900, Math.min(16000, Math.ceil(size / 155)));
+  if (type.startsWith('text/') || /json|xml|javascript|typescript|csv|markdown/.test(type)) return Math.max(220, Math.min(14000, Math.ceil(size / 3.2)));
+  return Math.max(500, Math.min(9000, Math.ceil(size / 230)));
+}
+
 function estimatedContentTokens(value) {
   if (typeof value === 'string') {
     if (value.startsWith('data:')) return 0;
-    return Math.ceil(value.length / 3);
+    return estimateTextTokens(value);
   }
   if (Array.isArray(value)) return value.reduce((sum, item) => sum + estimatedContentTokens(item), 0);
   if (!value || typeof value !== 'object') return 0;
-  if (value.type === 'image_url') return 1000;
+  if (value.type === 'image_url') return 1050;
   if (value.type === 'file') return 1500;
+  if (value.name || value.mime_type || value.size || value.size_bytes) return attachmentTokenEstimate(value);
   return Object.entries(value).reduce((sum, [key, item]) => {
-    if (key === 'file_data' || key === 'url') return sum;
+    if (key === 'file_data' || key === 'url' || key === 'dataUrl') return sum;
     return sum + estimatedContentTokens(item);
   }, 0);
 }
 
-export function estimateChatCharge(price, messages = [], webSearch = false, outputReserve = 512) {
-  const inputTokens = Math.max(1, estimatedContentTokens(messages) + 32 * Math.max(1, messages.length));
-  const reservedOutputTokens = Math.max(128, Math.ceil(Number(outputReserve) || 512));
-  const inputUsd = inputTokens * Number(price?.prompt || 0);
-  const outputUsd = reservedOutputTokens * Number(price?.completion || 0);
-  const webUsd = webSearch ? Number(price?.webSearch || 0.01) : 0;
-  const providerUsd = inputUsd + outputUsd + webUsd;
+function latestUserText(messages = []) {
+  const latest = [...messages].reverse().find(message => message?.role === 'user');
+  return typeof latest?.content === 'string' ? latest.content : '';
+}
+
+function expectedOutputTokens(text, inputTokens, attachmentCount, imageCount, webSearch) {
+  const value = String(text || '');
+  const latestTokens = Math.max(1, estimateTextTokens(value));
+  const asksForCode = /```|\b(code|كود|برمج|برنامج|function|api|html|javascript|python|sql)\b/i.test(value);
+  const asksForLong = /\b(explain|detailed|complete|full|report|article|essay|حلل|اشرح|بالتفصيل|كامل|تقرير|مقال)\b/i.test(value);
+  const asksForShort = /\b(short|brief|one word|مختصر|باختصار|كلمة واحدة)\b/i.test(value);
+  let ratio = asksForCode ? 2.25 : asksForLong ? 1.75 : asksForShort ? 0.55 : 1.15;
+  let predicted = 150 + latestTokens * ratio + Math.sqrt(Math.max(1, inputTokens)) * 14;
+  predicted += attachmentCount * 110 + imageCount * 170 + (webSearch ? 360 : 0);
+  return Math.max(96, Math.min(8192, Math.ceil(predicted)));
+}
+
+export function estimateChatCharge(price, messages = [], webSearch = false, outputReserve = 0) {
+  const safeMessages = Array.isArray(messages) ? messages : [];
+  // Message framing differs by native tokenizer; 14 tokens/message plus a small
+  // conversation header is a closer preflight approximation than word count alone.
+  const inputTokens = Math.max(1, estimatedContentTokens(safeMessages) + 14 * safeMessages.length + 8);
+  const attachmentCount = safeMessages.reduce((sum, message) => sum + (Array.isArray(message?.attachments) ? message.attachments.length : 0), 0);
+  const imageCount = safeMessages.reduce((sum, message) => sum + (Array.isArray(message?.attachments) ? message.attachments.filter(item => String(item?.type || '').startsWith('image/')).length : 0), 0);
+  const automaticOutput = expectedOutputTokens(latestUserText(safeMessages), inputTokens, attachmentCount, imageCount, webSearch);
+  const requestedReserve = Number(outputReserve || 0);
+  const reservedOutputTokens = Math.max(96, Math.min(8192, Math.ceil(requestedReserve > 0 ? Math.max(requestedReserve, automaticOutput) : automaticOutput)));
+  const promptRate = Math.max(0, Number(price?.prompt || 0));
+  const completionRate = Math.max(0, Number(price?.completion || 0));
+  const requestUsd = Math.max(0, Number(price?.request || 0));
+  const inputUsd = inputTokens * promptRate;
+  const outputUsd = reservedOutputTokens * completionRate;
+  // Current OpenRouter web-plugin pricing is normally $0.005/request; use a
+  // model-catalog value when supplied and otherwise this documented baseline.
+  const webUsd = webSearch ? Math.max(0, Number(price?.web_search ?? price?.webSearch ?? 0.005)) : 0;
+  const providerUsd = inputUsd + outputUsd + requestUsd + webUsd;
   return {
     inputTokens,
     reservedOutputTokens,
+    attachmentCount,
+    imageCount,
+    webSearch: Boolean(webSearch),
     inputUsd,
     outputUsd,
+    requestUsd,
     webUsd,
     providerUsd,
     chargedTokens: Math.max(1, Math.ceil(providerUsd / TOKEN_USD))
