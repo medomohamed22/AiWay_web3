@@ -387,7 +387,7 @@ function aiwayConfirm(message,options={}){return showAiwayDialog({...options,mes
 function statusMessage(status){const ar={400:'بيانات الطلب غير صحيحة.',401:'انتهت جلسة تسجيل الدخول. سجّل الدخول مرة أخرى.',402:'رصيدك غير كافٍ. اشحن رصيدًا إضافيًا.',403:'ليس لديك صلاحية لتنفيذ هذا الإجراء.',404:'العنصر المطلوب غير موجود.',408:'انتهت مهلة الطلب. حاول مرة أخرى.',413:'حجم الرسالة أو المرفق أكبر من المسموح.',429:'هناك ضغط مرتفع. انتظر قليلًا ثم حاول مرة أخرى.',500:'حدث عطل مؤقت في الخادم.',502:'حدث عطل مؤقت لدى مزود الخدمة.',503:'الخدمة غير متاحة مؤقتًا.',504:'استغرق الطلب وقتًا أطول من المسموح.'};const en={400:'The request data is invalid.',401:'Your session expired. Sign in again.',402:'Your balance is insufficient. Add more balance.',403:'You do not have permission to perform this action.',404:'The requested item was not found.',408:'The request timed out. Try again.',413:'The message or attachment is too large.',429:'The service is busy. Wait a moment and try again.',500:'A temporary server error occurred.',502:'The provider had a temporary failure.',503:'The service is temporarily unavailable.',504:'The request took too long.'};return (lang==='ar'?ar:en)[status]||(lang==='ar'?'حدث خطأ غير متوقع. حاول مرة أخرى.':'An unexpected error occurred. Try again.')}
 function makeUiError(message,code='SERVER_ERROR',meta={}){const error=new Error(message);error.code=code;error.isLocalized=true;Object.assign(error,meta||{});return error}
 function friendlyClientError(error,fallback){if(error?.isLocalized&&error?.message)return error;const raw=String(error?.message||error||'');if(error?.name==='AbortError')return error;if(/failed to fetch|networkerror|load failed|internet disconnected|econn|socket/i.test(raw))return makeUiError(lang==='ar'?'تعذر الاتصال بالخدمة. تحقق من الإنترنت ثم حاول مرة أخرى؛ لم يتم خصم رصيدك.':'Could not connect to the service. Check your internet connection and try again; your balance was not charged.','NETWORK_ERROR');if(/json|unexpected end|stream|decoder/i.test(raw))return makeUiError(lang==='ar'?'انقطع الاتصال أثناء استلام الرد. أعد المحاولة؛ لن يُخصم رصيد عن رد غير مكتمل.':'The connection was interrupted while receiving the response. Try again; an incomplete response will not be charged.','STREAM_INTERRUPTED');return makeUiError(fallback||statusMessage(500),'SERVER_ERROR')}
-function showLowBalance(remaining){const value=Math.max(0,Number(remaining||0));toast(lang==='ar'?`رصيدك أوشك على النفاد: متبقٍ ${value.toLocaleString('ar-EG')} توكن. اشحن رصيدًا لتجنب توقف الرسائل.`:`Your balance is running low: ${value.toLocaleString('en-US')} tokens remain. Add balance to avoid interruptions.`)}
+function showLowBalance(remaining){const value=Math.max(0,Number(remaining||0));toast(lang==='ar'?`رصيدك أوشك على النفاد: متبقٍ ${value.toLocaleString('en-US')} توكن. اشحن رصيدًا لتجنب توقف الرسائل.`:`Your balance is running low: ${value.toLocaleString('en-US')} tokens remain. Add balance to avoid interruptions.`)}
 function handleActionableError(error){if(['INSUFFICIENT_TOKENS','INSUFFICIENT_TOKENS_FOR_REQUEST','TRIAL_ENDED'].includes(error?.code)&&auth)setTimeout(()=>$('payModal')?.classList.add('open'),250)}
 async function api(url,opt={}){const request={...opt};let requestUrl=url;const method=String(request.method||'GET').toUpperCase();if(method==='GET'){const join=requestUrl.includes('?')?'&':'?';requestUrl+=`${join}locale=${encodeURIComponent(lang)}`}else if(typeof request.body==='string'){try{const body=JSON.parse(request.body);if(body&&typeof body==='object'&&!Array.isArray(body)&&!body.locale)request.body=JSON.stringify({...body,locale:lang})}catch{}}request.headers={...(request.headers||{}),'Content-Type':'application/json','X-UI-Language':lang,...(auth?.token?{Authorization:`Bearer ${auth.token}`}:{})};let r;try{r=await fetch(requestUrl,request)}catch(error){throw friendlyClientError(error,lang==='ar'?'تعذر الاتصال بالخدمة. حاول مرة أخرى.':'Could not connect to the service. Try again.')}const d=await r.json().catch(()=>({}));if(!r.ok){if(r.status===401&&auth)logout(false);throw makeUiError(d.error||statusMessage(r.status),d.code||`HTTP_${r.status}`,{status:r.status,availableTokens:d.availableTokens,requiredTokens:d.requiredTokens,shortfall:d.shortfall})}return d}
 const PI_SIGNIN_CLIENT_ID='2T7p8-x_UQY_PRUKKZIlweepyn8wuS8jk6BG3lfRp4Y';
@@ -602,7 +602,7 @@ let supportPoll=null;
 function supportText(){return lang==='ar'?{label:'الدعم',title:'تواصل مع الدعم',sub:'أرسل أي مشكلة وسيرد عليك فريق الدعم هنا.',placeholder:'اكتب مشكلتك هنا...',login:'سجّل الدخول بحساب Pi لبدء محادثة مع الدعم.',empty:'ابدأ بكتابة المشكلة التي تواجهك.'}:{label:'Support',title:'Contact support',sub:'Send any issue and the support team will reply here.',placeholder:'Describe your issue...',login:'Sign in with Pi to start a support conversation.',empty:'Start by describing the issue you are facing.'}}
 function updateSupportLabels(){const t=supportText();if($('supportLabel'))$('supportLabel').textContent=t.label;if($('supportTitle'))$('supportTitle').textContent=t.title;if($('supportSubtitle'))$('supportSubtitle').textContent=t.sub;if($('supportInput'))$('supportInput').placeholder=t.placeholder;if($('supportBtn')){$('supportBtn').title=t.title;$('supportBtn').setAttribute('aria-label',t.title)}}
 function setSupportBadge(n){n=Number(n||0);for(const id of ['supportBadge','menuBadge']){const el=$(id);if(!el)continue;el.textContent=n>99?'99+':String(n);el.classList.toggle('show',n>0)}}
-function renderSupportMessages(messages=[]){const box=$('supportMessages'),t=supportText();if(!auth){box.innerHTML=`<div class="support-empty">${esc(t.login)}</div>`;return}if(!messages.length){box.innerHTML=`<div class="support-empty">${esc(t.empty)}</div>`;return}box.innerHTML=messages.map(m=>`<div class="support-msg ${m.sender_role==='admin'?'admin':'user'}"><span>${esc(m.message)}</span><small>${new Date(m.created_at).toLocaleString(lang==='ar'?'ar-EG':'en-US')}</small></div>`).join('');box.scrollTop=box.scrollHeight}
+function renderSupportMessages(messages=[]){const box=$('supportMessages'),t=supportText();if(!auth){box.innerHTML=`<div class="support-empty">${esc(t.login)}</div>`;return}if(!messages.length){box.innerHTML=`<div class="support-empty">${esc(t.empty)}</div>`;return}box.innerHTML=messages.map(m=>`<div class="support-msg ${m.sender_role==='admin'?'admin':'user'}"><span>${esc(m.message)}</span><small>${new Date(m.created_at).toLocaleString('en-US')}</small></div>`).join('');box.scrollTop=box.scrollHeight}
 async function loadSupport({markRead=false,silent=false}={}){if(!auth){setSupportBadge(0);renderSupportMessages([]);return}try{const d=await api(`/api/conversations?mode=support${markRead?'&markRead=1':''}`);renderSupportMessages(d.messages||[]);setSupportBadge(markRead?0:d.unread||0)}catch(e){if(!silent)toast(friendlyClientError(e,lang==='ar'?'تعذر تحميل رسائل الدعم.':'Could not load support messages.').message)}}
 async function openSupport(){if(!auth){toast(lang==='ar'?'سجّل الدخول أولًا للتواصل مع الدعم':'Sign in first to contact support');return}updateSupportLabels();$('supportModal').classList.add('open');await loadSupport({markRead:true})}
 async function sendSupport(){if(!auth)return openSupport();const input=$('supportInput'),message=String(input.value||'').trim();if(!message)return;const btn=$('supportSend');btn.disabled=true;try{await api('/api/conversations?mode=support',{method:'POST',body:JSON.stringify({mode:'support',message})});input.value='';await loadSupport({markRead:true})}catch(e){toast(friendlyClientError(e,lang==='ar'?'تعذر إرسال رسالة الدعم.':'Could not send the support message.').message)}finally{btn.disabled=false}}
@@ -1117,7 +1117,7 @@ async function downloadTextFile(filename,content){
 async function exportChat(){if(!history.length)return toast(lang==='ar'?'لا توجد محادثة لتصديرها':'There is no conversation to export');const text=history.map(m=>`${m.role==='user'?'أنت':'AiWay'}:\n${m.content}`).join('\n\n');try{await triggerPiCompatibleDownload(new Blob([text],{type:'text/plain;charset=utf-8'}),'pi-ai-chat.txt')}catch(error){console.error('Chat export failed',error);toast(lang==='ar'?'تعذر تصدير المحادثة':'Could not export the conversation')}}
 function toggleWeb(){if(userProfile&&!userProfile.has_purchased)return toast(lang==='ar'?'بحث الويب متاح بعد أول عملية شراء.':'Web search unlocks after your first purchase.');webSearch=!webSearch;$('webPill').classList.toggle('on',webSearch);toast(webSearch?(lang==='ar'?'تم تفعيل بحث الويب':'Web search enabled'):(lang==='ar'?'تم إيقاف بحث الويب':'Web search disabled'))}
 function openPay(){if(!requirePiBrowser())return;if(!auth)return login();$('payModal').classList.add('open')}
-function renderPackages(){const box=document.querySelector('.packs');if(!box||!window.aiwayPackages)return;const labels=lang==='ar'?{starter:'أساسية',plus:'الأكثر توفيرًا',pro:'احترافية'}:{starter:'Starter',plus:'Best value',pro:'Pro'};box.innerHTML=Object.entries(window.aiwayPackages).map(([id,p])=>`<div class="pack ${id==='plus'?'featured':''}"><small>${labels[id]||id}</small><b>${Number(p.tokens).toLocaleString()}</b><small>AiWay Tokens</small><span class="pi-estimate">${p.amountPi?Math.round(Number(p.amountPi)):'--'} Pi</span><span class="usd-note">≈ $${p.usd}</span><button class="btn ${id==='plus'?'primary':'soft'}" onclick="buy('${id}')">${lang==='ar'?'شراء بـ Pi':'Buy with Pi'}</button></div>`).join('')}
+function renderPackages(){const box=document.querySelector('.packs');if(!box||!window.aiwayPackages)return;const labels=lang==='ar'?{starter:'أساسية',plus:'الأكثر توفيرًا',pro:'احترافية'}:{starter:'Starter',plus:'Best value',pro:'Pro'};box.innerHTML=Object.entries(window.aiwayPackages).map(([id,p])=>`<div class="pack ${id==='plus'?'featured':''}"><small>${labels[id]||id}</small><b>${Number(p.tokens).toLocaleString('en-US')}</b><small>AiWay Tokens</small><span class="pi-estimate">${p.amountPi?Math.round(Number(p.amountPi)):'--'} Pi</span><span class="usd-note">≈ $${p.usd}</span><button class="btn ${id==='plus'?'primary':'soft'}" onclick="buy('${id}')">${lang==='ar'?'شراء بـ Pi':'Buy with Pi'}</button></div>`).join('')}
 async function buy(packageId){if(!piReady||!window.Pi?.createPayment)return toast(lang==='ar'?'الدفع متاح داخل Pi Browser فقط':'Payments are available in Pi Browser only');const pkg=window.aiwayPackages?.[packageId];if(!pkg?.amountPi)return toast(lang==='ar'?'تعذر جلب سعر Pi الآن':'Could not retrieve the current Pi price');const btn=document.querySelector(`[onclick="buy('${packageId}')"]`);const original=btn?.textContent;if(btn){btn.disabled=true;btn.classList.add('loading');btn.textContent=lang==='ar'?'جاري التحويل للدفع':'Opening payment'}try{await authenticatePiForPayments({refreshSession:true,silentRecovery:false,requirePendingResolved:true});$('payModal').classList.remove('open');await Pi.createPayment({amount:Number(pkg.amountPi),memo:`Purchase ${Number(pkg.tokens).toLocaleString('en-US')} AiWay Tokens for $${pkg.usd}`,metadata:{packageId,usd:pkg.usd,tokens:pkg.tokens,piUsd:pkg.piUsd}}, {onReadyForServerApproval:paymentId=>api('/api/payment-approve',{method:'POST',body:JSON.stringify({paymentId,packageId})}),onReadyForServerCompletion:async(paymentId,txid)=>{await api('/api/payment-complete',{method:'POST',body:JSON.stringify({paymentId,txid,packageId})});await Promise.all([refreshMe(),loadModels()]);toast(lang==='ar'?'تمت إضافة الرصيد وفتح جميع النماذج':'Balance added and all models unlocked')},onCancel:()=>toast(lang==='ar'?'تم إلغاء الدفع':'Payment cancelled'),onError:e=>toast(friendlyClientError(e,lang==='ar'?'تعذر إتمام الدفع عبر Pi. حاول مرة أخرى.':'The Pi payment could not be completed. Try again.').message)})}catch(e){toast(friendlyClientError(e,lang==='ar'?'تعذر بدء الدفع عبر Pi. حاول مرة أخرى.':'Could not start the Pi payment. Try again.').message)}finally{if(btn){btn.disabled=false;btn.classList.remove('loading');btn.textContent=original}}}
 function autoSize(){const t=$('prompt');t.style.height='auto';t.style.height=Math.min(t.scrollHeight,180)+'px'}function closeMenu(){$('sidebar').classList.remove('open');$('backdrop').classList.remove('open')}
 const messagesBox=$('messages');
@@ -1141,5 +1141,62 @@ window.addEventListener('resize',syncViewportHeight,{passive:true});
 window.addEventListener('orientationchange',function(){setTimeout(syncViewportHeight,150)},{passive:true});
 if(window.visualViewport){window.visualViewport.addEventListener('resize',syncViewportHeight,{passive:true})}
 if(document.readyState==='loading'){window.addEventListener('DOMContentLoaded',init)}else{init()}
+</script>
+<script>
+(function enforceEnglishDigits(){
+  'use strict';
+  const digitPattern=/[\u0660-\u0669\u06F0-\u06F9]/g;
+  const normalize=value=>typeof value==='string'?value.replace(digitPattern,d=>{
+    const code=d.charCodeAt(0);
+    return String(code-(code>=0x06F0?0x06F0:0x0660));
+  }):value;
+  const normalizeElement=element=>{
+    if(!(element instanceof Element))return;
+    for(const attr of ['value','placeholder','title','aria-label','data-label']){
+      if(element.hasAttribute(attr)){
+        const current=element.getAttribute(attr),next=normalize(current);
+        if(next!==current)element.setAttribute(attr,next);
+      }
+    }
+    if(element instanceof HTMLInputElement||element instanceof HTMLTextAreaElement){
+      const next=normalize(element.value);
+      if(next!==element.value)element.value=next;
+    }
+  };
+  const normalizeTree=root=>{
+    if(!root)return;
+    if(root.nodeType===Node.TEXT_NODE){
+      const parent=root.parentElement;
+      if(parent&&!parent.closest('script,style,textarea,template'))root.nodeValue=normalize(root.nodeValue);
+      return;
+    }
+    if(root.nodeType!==Node.ELEMENT_NODE&&root.nodeType!==Node.DOCUMENT_FRAGMENT_NODE)return;
+    if(root.nodeType===Node.ELEMENT_NODE)normalizeElement(root);
+    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT);
+    let node;
+    while((node=walker.nextNode())){
+      if(node.nodeType===Node.TEXT_NODE){
+        const parent=node.parentElement;
+        if(parent&&!parent.closest('script,style,textarea,template'))node.nodeValue=normalize(node.nodeValue);
+      }else normalizeElement(node);
+    }
+  };
+  const start=()=>{
+    normalizeTree(document.body);
+    new MutationObserver(records=>{
+      for(const record of records){
+        if(record.type==='characterData')normalizeTree(record.target);
+        else{
+          record.addedNodes.forEach(normalizeTree);
+          if(record.type==='attributes')normalizeElement(record.target);
+        }
+      }
+    }).observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['value','placeholder','title','aria-label','data-label']});
+    document.addEventListener('input',event=>normalizeElement(event.target),true);
+    document.addEventListener('change',event=>normalizeElement(event.target),true);
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
+  window.toEnglishDigits=normalize;
+})();
 </script>
 </body></html>
