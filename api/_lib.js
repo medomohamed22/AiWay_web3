@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { SignJWT, jwtVerify } from 'jose';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { isIP } from 'node:net';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -79,7 +80,15 @@ export function telegramHtml(value) {
   return escapeTelegramHtml(value);
 }
 
+export function setSecurityHeaders(res) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+}
+
 export function json(res, status, body) {
+  setSecurityHeaders(res);
   res.status(status).setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
   return res.end(JSON.stringify(body));
@@ -901,8 +910,37 @@ export async function releaseAiTokens(supabase,userId,requestId,meta={}) {
 
 
 export function requestIp(req) {
-  return String(req?.headers?.['x-forwarded-for'] || req?.headers?.['x-real-ip'] || 'unknown').split(',')[0].trim().slice(0,80);
+  // On Vercel, x-real-ip is set by the platform and is less susceptible to a
+  // client-prepended x-forwarded-for value. Fall back conservatively elsewhere.
+  const candidate = String(req?.headers?.['x-real-ip'] || req?.headers?.['x-vercel-forwarded-for'] || req?.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+  return isIP(candidate) ? candidate : 'unknown';
 }
+
+export function validOpaqueId(value, min = 3, max = 160) {
+  const id = String(value || '').trim();
+  return id.length >= min && id.length <= max && /^[A-Za-z0-9._:-]+$/.test(id) ? id : '';
+}
+
+export function safeExternalHttpsUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) return null;
+    const host = url.hostname.toLowerCase().replace(/\.$/, '');
+    if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return null;
+    const ipVersion = isIP(host);
+    if (ipVersion === 4) {
+      const octets = host.split('.').map(Number);
+      const [a,b] = octets;
+      if (a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224) return null;
+    } else if (ipVersion === 6) {
+      if (host === '::1' || host === '::' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe8') || host.startsWith('fe9') || host.startsWith('fea') || host.startsWith('feb')) return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export async function enforceRateLimit(supabase,bucket,limit,windowSeconds) {
   const {data,error}=await supabase.rpc('check_api_rate_limit',{p_bucket:String(bucket).slice(0,180),p_limit:limit,p_window_seconds:windowSeconds});
   if(error) throw appError('DATABASE_ERROR',{},error);

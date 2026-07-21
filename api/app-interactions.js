@@ -1,4 +1,4 @@
-import { allowMethods, cleanText, db, handleError, json, localize, requestLocale, requireUser } from './_lib.js';
+import { allowMethods, cleanText, db, enforceRateLimit, handleError, json, localize, requestIp, requestLocale, requireUser, validOpaqueId } from './_lib.js';
 
 const REPORT_REASONS=['not_working','scam','wrong_link','impersonation','inappropriate','other'];
 
@@ -9,7 +9,7 @@ export default async function handler(req,res){
     const supabase=db();
     if(req.method==='GET'){
       const user=await requireUser(req);
-      const appId=String(req.query?.appId||'');
+      const appId=validOpaqueId(req.query?.appId,3,100);
       if(!appId)return json(res,400,{error:localize(locale,'معرّف التطبيق مطلوب.','App id is required.'),code:'INVALID_REQUEST'});
       const {data,error}=await supabase.from('app_ratings').select('stars').eq('app_id',appId).eq('user_id',user.id).maybeSingle();
       if(error)throw error;
@@ -17,13 +17,14 @@ export default async function handler(req,res){
     }
     const body=req.body||{};
     const action=String(body.action||'');
-    const appId=String(body.appId||'');
+    const appId=validOpaqueId(body.appId,3,100);
     if(!appId)return json(res,400,{error:localize(locale,'معرّف التطبيق مطلوب.','App id is required.'),code:'INVALID_REQUEST'});
     const {data:app,error:appError}=await supabase.from('apps').select('id,status').eq('id',appId).maybeSingle();
     if(appError)throw appError;
     if(!app||app.status!=='published')return json(res,404,{error:localize(locale,'التطبيق غير موجود أو غير منشور.','The app was not found or is not published.'),code:'FILE_NOT_FOUND'});
 
     if(action==='view'||action==='get_click'){
+      await enforceRateLimit(supabase,`app-event:${requestIp(req)}:${appId}`,60,60);
       const visitorId=cleanText(body.visitorId,100);
       if(!/^[a-zA-Z0-9_-]{16,100}$/.test(visitorId))return json(res,400,{error:localize(locale,'معرّف الزائر غير صالح.','The visitor id is invalid.'),code:'INVALID_REQUEST'});
       const {error}=await supabase.from('app_events').insert({app_id:appId,visitor_id:visitorId,event_type:action});
@@ -34,6 +35,7 @@ export default async function handler(req,res){
 
     const user=await requireUser(req);
     if(action==='rate'){
+      await enforceRateLimit(supabase,`app-rate:${user.id}`,30,60);
       const stars=Number(body.stars);
       if(!Number.isInteger(stars)||stars<1||stars>5)return json(res,400,{error:localize(locale,'اختر تقييمًا من نجمة واحدة إلى خمس نجوم.','Choose a rating from 1 to 5 stars.'),code:'INVALID_REQUEST'});
       const {error}=await supabase.from('app_ratings').upsert({app_id:appId,user_id:user.id,stars},{onConflict:'app_id,user_id'});
@@ -42,6 +44,7 @@ export default async function handler(req,res){
       return json(res,200,{rating,userStars:stars});
     }
     if(action==='report'){
+      await enforceRateLimit(supabase,`app-report:${user.id}`,10,3600);
       const reason=String(body.reason||'');
       if(!REPORT_REASONS.includes(reason))return json(res,400,{error:localize(locale,'اختر سببًا صحيحًا للإبلاغ.','Choose a valid report reason.'),code:'INVALID_REQUEST'});
       const details=cleanText(body.details,500);

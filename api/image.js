@@ -1,4 +1,4 @@
-import { allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, fetchWithTimeout, handleError, isLowBalance, json, localize, openRouterError, requestLocale, requireUser, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens, claimFreeDailyUse, createDownloadTicket, verifyDownloadTicket } from './_lib.js';
+import { allowMethods, appError, chargeTokens, classifyTokenChargeFailure, cleanText, db, errorDetails, fetchWithTimeout, handleError, isLowBalance, json, localize, openRouterError, requestLocale, requireUser, ensureConversationOwner, normalizeRequestId, reserveAiTokens, finalizeAiTokens, releaseAiTokens, claimFreeDailyUse, createDownloadTicket, verifyDownloadTicket, safeExternalHttpsUrl } from './_lib.js';
 
 
 function isStorageCapacityError(error) {
@@ -113,8 +113,9 @@ async function downloadImage(req, res, ticketed = false, inline = false) {
       file = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
     }
   }
-  if (!file && image.source_url && /^https:\/\//i.test(String(image.source_url))) {
-    const remote = await fetchWithTimeout(String(image.source_url), {}, 30000);
+  const safeSourceUrl = safeExternalHttpsUrl(image.source_url);
+  if (!file && safeSourceUrl) {
+    const remote = await fetchWithTimeout(safeSourceUrl, { redirect: 'error' }, 30000);
     if (remote.ok) {
       file = Buffer.from(await remote.arrayBuffer());
       mediaType = String(remote.headers.get('content-type') || mediaType).split(';')[0].trim().toLowerCase();
@@ -345,7 +346,7 @@ export default async function handler(req, res) {
     if (!item?.b64_json && !item?.url) throw appError('EMPTY_RESPONSE');
     const mediaType = item.media_type || 'image/jpeg';
     let thumbnailData = item?.b64_json ? `data:${mediaType};base64,${item.b64_json}` : null;
-    const sourceUrl = /^https:\/\//i.test(String(item?.url || '')) ? String(item.url) : null;
+    const sourceUrl = safeExternalHttpsUrl(item?.url);
     if (!thumbnailData && sourceUrl) {
       const remoteImage = await fetchWithTimeout(sourceUrl, {}, 30000);
       if (!remoteImage.ok) throw appError('EMPTY_RESPONSE');

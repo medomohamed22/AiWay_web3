@@ -28,6 +28,7 @@ export default async function handler(req,res){
     const user=await requireUser(req);
     await enforceRateLimit(db(),`payment:${user.id}:${requestIp(req)}`,12,60);
     const paymentId=String(req.body?.paymentId||'').trim();
+    if(!/^[A-Za-z0-9_-]{8,160}$/.test(paymentId)) throw appError('PAYMENT_INVALID');
     const requestedPackage=String(req.body?.packageId||'').trim();
     if(!paymentId||!PACKAGES[requestedPackage]) throw appError('PAYMENT_INVALID');
     if(!process.env.PI_SECRET_KEY) throw appError('MISSING_CONFIGURATION');
