@@ -84,7 +84,8 @@ export default async function handler(req,res){
     const remotePackage=pkg(remote);
     if(remotePackage!==norm(payment.package_id)||!PACKAGES[remotePackage])mismatch('PACKAGE',{paymentId,remotePackage,storedPackage:payment.package_id});
     if(!closeEnough(remote.amount,payment.amount_pi))mismatch('AMOUNT',{paymentId,remoteAmount:remote.amount,storedAmount:payment.amount_pi});
-    if(Number(payment.ai_tokens)!==Number(PACKAGES[remotePackage].tokens))mismatch('TOKENS',{paymentId,storedTokens:payment.ai_tokens,expectedTokens:PACKAGES[remotePackage].tokens});
+    const remoteTokens=Number(remote?.metadata?.tokens||payment.ai_tokens);
+    if(remoteTokens!==Number(payment.ai_tokens))mismatch('TOKENS',{paymentId,remoteTokens,storedTokens:payment.ai_tokens});
 
     const remoteTx=verifiedTransaction(remote);
     if(!remoteTx)throw appError('PAYMENT_PENDING');

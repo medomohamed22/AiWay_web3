@@ -525,13 +525,15 @@ export function handleError(error, res, fallback = 'Server error', locale = 'ar'
 }
 
 // كل AiWay Token يمثل 0.00001 دولار من تكلفة المزود الفعلية.
-// سعر البيع يضيف 35% فوق تكلفة OpenRouter عند إنشاء الباقة، وليس وقت الاستهلاك.
+// كل AiWay Token يغطي 0.00001 دولار من تكلفة OpenRouter الفعلية.
+// الباقات تقسم قيمة الدفع 50/50: نصف القيمة رصيد استخدام للمستخدم ونصفها ربح إجمالي للمنصة.
+// لا يدخل معامل الربح في خصم الاستخدام؛ الخصم يظل providerUsd / TOKEN_USD فقط.
 export const TOKEN_USD = 0.00001;
-export const MARKUP = 1.35;
+export const MARKUP = 2;
 export const TRIAL_MESSAGE_LIMIT = 5;
 export const TRIAL_TOKENS = 1500;
 export const TRIAL_MODEL_FALLBACK = 'google/gemma-4-26b-a4b-it:free';
-const tokensForUsd = usd => Math.floor(Number(usd) / MARKUP / TOKEN_USD);
+const tokensForUsd = usd => Math.round(Number(usd) / MARKUP / TOKEN_USD);
 export const PACKAGES = {
   starter: { usd: 1, tokens: tokensForUsd(1) },
   plus: { usd: 5, tokens: tokensForUsd(5) },

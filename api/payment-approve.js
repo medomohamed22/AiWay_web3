@@ -10,14 +10,14 @@ async function getPiPayment(paymentId){
 function paymentOwner(remote){return String(remote?.user_uid||remote?.user?.uid||remote?.metadata?.pi_uid||'');}
 function paymentPackage(remote){return String(remote?.metadata?.packageId||remote?.metadata?.package_id||'');}
 function closeEnough(a,b){const x=Number(a),y=Number(b);return Number.isFinite(x)&&Number.isFinite(y)&&x>0&&Math.abs(x-y)<=Math.max(0.0000001,y*0.025);}
-function validateRemote(remote,user,packageId,quote,paymentId){
+function validateRemote(remote,user,packageId,quote,paymentId,expectedTokens=PACKAGES[packageId]?.tokens){
   const pack=PACKAGES[packageId];
   if(!remote) throw appError('PAYMENT_MISMATCH');
   const remoteId=String(remote.identifier||remote.payment_id||''); if(remoteId&&remoteId!==String(paymentId)) throw appError('PAYMENT_MISMATCH');
   if(paymentPackage(remote)!==packageId) throw appError('PAYMENT_MISMATCH');
   const owner=paymentOwner(remote); if(owner&&owner!==String(user.pi_uid)) throw appError('PAYMENT_MISMATCH');
   if(Number(remote?.metadata?.usd||pack.usd)!==Number(pack.usd)) throw appError('PAYMENT_MISMATCH');
-  if(Number(remote?.metadata?.tokens||pack.tokens)!==Number(pack.tokens)) throw appError('PAYMENT_MISMATCH');
+  if(Number(remote?.metadata?.tokens||expectedTokens)!==Number(expectedTokens)) throw appError('PAYMENT_MISMATCH');
   if(!closeEnough(remote?.amount,quote.amountPi)) throw appError('PAYMENT_MISMATCH');
 }
 
@@ -32,15 +32,18 @@ export default async function handler(req,res){
     if(!paymentId||!PACKAGES[requestedPackage]) throw appError('PAYMENT_INVALID');
     if(!process.env.PI_SECRET_KEY) throw appError('MISSING_CONFIGURATION');
     const [remote,quote]=await Promise.all([getPiPayment(paymentId),packageQuote(requestedPackage)]);
-    validateRemote(remote,user,requestedPackage,quote,paymentId);
-
     const supabase=db();
     const existing=await supabase.from('payments').select('*').eq('payment_id',paymentId).maybeSingle();
     if(existing.error) throw appError('DATABASE_ERROR',{},existing.error);
     if(existing.data){
       if(existing.data.user_id!==user.id||existing.data.package_id!==requestedPackage) throw appError('PAYMENT_MISMATCH');
+      // Preserve approved payments created before a pricing update by validating
+      // against the immutable token amount already stored for that payment.
+      validateRemote(remote,user,requestedPackage,quote,paymentId,existing.data.ai_tokens);
       return json(res,200,{approved:true,amountPi:Number(existing.data.amount_pi),alreadyApproved:true});
     }
+    // Every newly approved payment must use the current package token amount.
+    validateRemote(remote,user,requestedPackage,quote,paymentId,PACKAGES[requestedPackage].tokens);
 
     const response=await fetchWithTimeout(`https://api.minepi.com/v2/payments/${encodeURIComponent(paymentId)}/approve`,{method:'POST',headers:piHeaders()},20000);
     const data=await response.json().catch(()=>null);
