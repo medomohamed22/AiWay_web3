@@ -2,10 +2,6 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 import { allowMethods, appError, db, handleError, json, localize, piApiError, requestLocale, signAppToken, requestIp, enforceRateLimit } from './_lib.js';
 
 const BRIDGE_TTL_MS = 10 * 60 * 1000;
-const MAX_PI_ACCESS_TOKEN_LENGTH = 4096;
-const validUuid = value => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
-const validPollToken = value => /^[A-Za-z0-9_-]{40,100}$/.test(String(value || ''));
-const validAccessToken = value => { const token=String(value || '').trim(); return token && token.length <= MAX_PI_ACCESS_TOKEN_LENGTH ? token : ''; };
 
 function sha256(value) {
   return createHash('sha256').update(String(value)).digest('hex');
@@ -125,7 +121,7 @@ export default async function handler(req, res) {
 
     if (action === 'bridge-complete') {
       await enforceRateLimit(supabase, `pi-bridge-complete:${ip}`, 12, 60);
-      const accessToken = validAccessToken(req.body?.accessToken);
+      const accessToken = String(req.body?.accessToken || '').trim();
       const parsed = parseBridgeState(req.body?.state);
       if (!accessToken || !parsed) throw appError('INVALID_REQUEST');
       const row = await readBridge(supabase, parsed.requestId);
@@ -162,7 +158,6 @@ export default async function handler(req, res) {
       await enforceRateLimit(supabase, `pi-bridge-status:${ip}`, 90, 60);
       const requestId = String(req.body?.requestId || '').trim();
       const pollToken = String(req.body?.pollToken || '').trim();
-      if (!validUuid(requestId) || !validPollToken(pollToken)) throw appError('PI_LOGIN_BRIDGE_EXPIRED');
       const row = await readBridge(supabase, requestId);
       if (!bridgeValid(row, pollToken)) throw appError('PI_LOGIN_BRIDGE_EXPIRED');
       if (row.status !== 'completed' || !row.user_id) return json(res, 200, { status: 'pending' });
@@ -174,7 +169,6 @@ export default async function handler(req, res) {
       const requestId = String(req.body?.requestId || '').trim();
       const pollToken = String(req.body?.pollToken || '').trim();
       const code = String(req.body?.exchangeCode || '').trim();
-      if (!validUuid(requestId) || !validPollToken(pollToken)) throw appError('UNAUTHORIZED');
       const expectedCode = exchangeCode(requestId, pollToken);
       if (!code || code.length !== expectedCode.length || !timingSafeEqual(Buffer.from(code), Buffer.from(expectedCode))) throw appError('UNAUTHORIZED');
       const row = await readBridge(supabase, requestId);
@@ -200,7 +194,7 @@ export default async function handler(req, res) {
     }
 
     await enforceRateLimit(supabase, `login:${ip}`, 10, 60);
-    const accessToken = validAccessToken(req.body?.accessToken);
+    const accessToken = String(req.body?.accessToken || '').trim();
     if (!accessToken) return json(res, 400, {
       error: localize(locale, 'رمز تسجيل الدخول من Pi غير موجود. أعد فتح الموقع داخل Pi Browser وحاول مرة أخرى.', 'The Pi sign-in token is missing. Reopen the site in Pi Browser and try again.'),
       code: 'PI_LOGIN_FAILED'

@@ -1,4 +1,4 @@
-import { allowMethods, db, json, localize, requestLocale, validOpaqueId } from './_lib.js';
+import { allowMethods, db, json, localize, requestLocale } from './_lib.js';
 
 const APP_FIELDS = 'id,name,slug,category,network,short_description,website_url,icon_url,screenshot_urls,rating,ratings_count,views_count,get_clicks_count,is_verified,is_featured,featured_until,developer_name,created_at';
 
@@ -7,18 +7,22 @@ export default async function handler(req, res) {
   const locale = requestLocale(req);
   try {
     const supabase = db();
+    const now = new Date().toISOString();
+    // Keep expired promotions visually inactive without blocking reads if cleanup fails.
+    supabase.from('apps').update({ is_featured: false }).eq('is_featured', true).lt('featured_until', now).then(()=>{}).catch(()=>{});
+
     const params = req.query || {};
     const enhanced = Boolean(params.id || params.q || params.network || params.category || params.sort || params.limit || params.cursor);
     let query = supabase.from('apps').select(APP_FIELDS, enhanced ? { count: 'exact' } : undefined).eq('status', 'published');
 
-    if (params.id) { const id=validOpaqueId(params.id,3,100); if (!id) return json(res,400,{error:localize(locale,'معرّف التطبيق غير صالح.','The app id is invalid.'),code:'INVALID_REQUEST'}); query = query.eq('id', id).limit(1); }
+    if (params.id) query = query.eq('id', params.id).limit(1);
     if (params.network && ['mainnet','testnet'].includes(String(params.network))) query = query.eq('network', params.network);
     if (params.category && params.category !== 'All') query = query.eq('category', String(params.category).slice(0, 50));
     if (params.q) {
       const q = String(params.q).trim().replace(/[,%()]/g, ' ').slice(0, 80);
       if (q) query = query.or(`name.ilike.%${q}%,short_description.ilike.%${q}%,category.ilike.%${q}%`);
     }
-    if (params.cursor) { const cursor=String(params.cursor); if (!/^\d{4}-\d{2}-\d{2}T/.test(cursor) || Number.isNaN(Date.parse(cursor))) return json(res,400,{error:localize(locale,'مؤشر الصفحة غير صالح.','The page cursor is invalid.'),code:'INVALID_REQUEST'}); query = query.lt('created_at', new Date(cursor).toISOString()); }
+    if (params.cursor) query = query.lt('created_at', params.cursor);
 
     query = query.order('is_featured', { ascending: false }).order('featured_until', { ascending: false, nullsFirst: false });
     const sort = String(params.sort || 'newest');
