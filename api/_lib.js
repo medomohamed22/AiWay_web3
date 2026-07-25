@@ -596,6 +596,8 @@ function normalizeModel(model, family) {
     family: family.key,
     familyLabel: family.label,
     tag: family.tag,
+    inputModalities: Array.isArray(model.architecture?.input_modalities) ? model.architecture.input_modalities.map(String) : ['text'],
+    outputModalities: Array.isArray(model.architecture?.output_modalities) ? model.architecture.output_modalities.map(String) : ['text'],
     isFree: promptPrice === 0 && completionPrice === 0,
     pricing: {
       prompt: promptPrice,

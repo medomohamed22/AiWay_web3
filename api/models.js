@@ -11,6 +11,71 @@ const IMAGE_PROVIDER_LABELS = { 'x-ai':'xAI · Grok Imagine',
   ideogram: 'Ideogram'
 };
 let imageCatalogCache = { at: 0, models: [] };
+let openRouterRankingsCache = { at: 0, data: null };
+
+
+
+function rankingMap(models = []) {
+  const result = {};
+  models.forEach((model, index) => {
+    if (model?.id) result[String(model.id)] = index + 1;
+  });
+  return result;
+}
+
+async function fetchOfficialModelOrder(sort) {
+  const url = `https://openrouter.ai/api/v1/models?output_modalities=text&sort=${encodeURIComponent(sort)}&limit=1000`;
+  const response = await fetchWithTimeout(url, {
+    headers: process.env.OPENROUTER_API_KEY ? { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` } : {}
+  }, 15000);
+  if (!response.ok) throw new Error(`OpenRouter ${sort} ranking ${response.status}`);
+  const payload = await response.json();
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
+async function getOfficialOpenRouterRankings() {
+  if (openRouterRankingsCache.data && Date.now() - openRouterRankingsCache.at < 30 * 60 * 1000) {
+    return openRouterRankingsCache.data;
+  }
+  try {
+    const [intelligence, throughput, latency, popular, coding] = await Promise.all([
+      fetchOfficialModelOrder('intelligence-high-to-low'),
+      fetchOfficialModelOrder('throughput-high-to-low'),
+      fetchOfficialModelOrder('latency-low-to-high'),
+      fetchOfficialModelOrder('most-popular'),
+      fetchOfficialModelOrder('coding-high-to-low')
+    ]);
+    const data = {
+      intelligence: rankingMap(intelligence),
+      throughput: rankingMap(throughput),
+      latency: rankingMap(latency),
+      popular: rankingMap(popular),
+      coding: rankingMap(coding),
+      source: 'openrouter',
+      refreshedAt: new Date().toISOString()
+    };
+    openRouterRankingsCache = { at: Date.now(), data };
+    return data;
+  } catch (error) {
+    console.warn('Unable to load official OpenRouter rankings:', error.message);
+    return openRouterRankingsCache.data || {
+      intelligence: {}, throughput: {}, latency: {}, popular: {}, coding: {}, source: 'openrouter', refreshedAt: null
+    };
+  }
+}
+
+function officialRankingFor(modelId, rankings) {
+  const id = String(modelId || '');
+  return {
+    intelligenceRank: rankings.intelligence[id] || null,
+    throughputRank: rankings.throughput[id] || null,
+    latencyRank: rankings.latency[id] || null,
+    popularityRank: rankings.popular[id] || null,
+    codingRank: rankings.coding[id] || null,
+    rankingSource: rankings.source || 'openrouter',
+    rankingRefreshedAt: rankings.refreshedAt || null
+  };
+}
 
 function chatCostPerMillion(model = {}) {
   const prompt = Number(model.pricing?.prompt);
@@ -131,6 +196,8 @@ async function getImageModels() {
         providerLabel: IMAGE_PROVIDER_LABELS[provider] || provider,
         created: Number(model.created || 0),
         description: model.description || '',
+        inputModalities: Array.isArray(model.architecture?.input_modalities) ? model.architecture.input_modalities.map(String) : ['text','image'],
+        outputModalities: Array.isArray(model.architecture?.output_modalities) ? model.architecture.output_modalities.map(String) : ['image'],
         pricing: model.pricing || {},
         supportedParameters: serializableCapabilities(model.supported_parameters),
         supportedAspectRatios: enumValues(model.supported_parameters?.aspect_ratio),
@@ -201,7 +268,7 @@ export default async function handler(req, res) {
       unlocked = Boolean(data?.has_purchased);
     } catch {}
 
-    const [catalog, imageCatalog, trialModelId] = await Promise.all([getAvailableModels(), getImageModels(), getTrialModelId()]);
+    const [catalog, imageCatalog, trialModelId, officialRankings] = await Promise.all([getAvailableModels(), getImageModels(), getTrialModelId(), getOfficialOpenRouterRankings()]);
     const normalizedModels = catalog.map(model => ({
       id: model.id,
       name: model.name,
@@ -217,9 +284,12 @@ export default async function handler(req, res) {
       shortName: model.name,
       provider: model.family,
       providerLabel: model.familyLabel,
+      inputModalities: Array.isArray(model.inputModalities) && model.inputModalities.length ? model.inputModalities : ['text'],
+      outputModalities: Array.isArray(model.outputModalities) && model.outputModalities.length ? model.outputModalities : ['text'],
       locked: !unlocked && model.id !== trialModelId && !model.isFree,
       trial: model.id === trialModelId,
-      costPerMillion: chatCostPerMillion(model)
+      costPerMillion: chatCostPerMillion(model),
+      ...officialRankingFor(model.id, officialRankings)
     }));
     const models = [...normalizedModels].sort(compareChatCostAsc);
     const paidChatModels = normalizedModels.filter(model => !model.isFree);
@@ -251,7 +321,9 @@ export default async function handler(req, res) {
         return { ...model, isFree: explicitlyFree, locked: !unlocked && !explicitlyFree };
       }),
       tokenUsd: TOKEN_USD,
-      refreshedAt: new Date().toISOString()
+      refreshedAt: new Date().toISOString(),
+      rankingsSource: 'OpenRouter official models API',
+      rankingsRefreshedAt: officialRankings.refreshedAt
     });
   } catch (error) {
     console.error(error);
