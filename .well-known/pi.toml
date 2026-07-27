@@ -1,6 +1,18 @@
+VERSION="2.0.0"
+NETWORK_PASSPHRASE="Pi Testnet"
+HORIZON_URL="https://api.testnet.minepi.com"
+ACCOUNTS=[
+  "GBYNA57Q5KXQ6Q3JG35FTLXRGEPYUONM7TYV6TXFJRRWZPDUDHNQSY27"
+]
+[DOCUMENTATION]
+ORG_NAME="AiWay"
+ORG_URL="https://ai-way-web3.vercel.app"
+ORG_LOGO="https://raw.githubusercontent.com/medomohamed22/Tokens/main/AiWay.jpg"
+ORG_DESCRIPTION="AiWay is an all-in-one AI platform for chatting, image generation, and accessing powerful language models through a simple interface."
 [[CURRENCIES]]
 code="AIWAY"
 issuer="GBYNA57Q5KXQ6Q3JG35FTLXRGEPYUONM7TYV6TXFJRRWZPDUDHNQSY27"
+display_decimals=2
 name="AiWay"
 desc="AiWay is an all-in-one AI platform for chatting, image generation, and accessing powerful language models through a simple interface."
 image="https://raw.githubusercontent.com/medomohamed22/Tokens/main/AiWay.jpg"
